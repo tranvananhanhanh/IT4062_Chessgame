@@ -1,0 +1,131 @@
+CC = gcc
+CFLAGS = -Wall -Wextra -g -Iinclude -I/usr/include/postgresql -pthread
+LDFLAGS = -lpq -lpthread -lm
+
+# Directories
+SRC_DIR = src
+GAME_DIR = $(SRC_DIR)/game
+TIMER_DIR = $(SRC_DIR)/timer
+HISTORY_DIR = $(SRC_DIR)/history
+PROTOCOL_DIR = $(SRC_DIR)/protocol
+SESSION_DIR = $(SRC_DIR)/session
+SERVER_DIR = $(SRC_DIR)/server
+DB_DIR = $(SRC_DIR)/db
+BUILD_DIR = build
+BIN_DIR = bin
+
+# Source files
+GAME_SRCS = $(GAME_DIR)/chess_board.c \
+            $(GAME_DIR)/move_validator.c \
+            $(GAME_DIR)/move_executor.c \
+            $(GAME_DIR)/game_state.c \
+            $(GAME_DIR)/game_manager.c
+
+TIMER_SRCS = $(TIMER_DIR)/timer.c
+
+HISTORY_SRCS = $(HISTORY_DIR)/history.c \
+               $(HISTORY_DIR)/history_handlers.c
+
+PROTOCOL_SRCS = $(PROTOCOL_DIR)/protocol_handler.c
+
+SESSION_SRCS = $(SESSION_DIR)/client_session.c
+
+SERVER_SRCS = $(SERVER_DIR)/server_core.c
+
+DB_SRCS = $(DB_DIR)/db_connection.c \
+          $(DB_DIR)/db_matches.c \
+          $(DB_DIR)/db_moves.c \
+          $(DB_DIR)/db_stats.c \
+          $(DB_DIR)/db_users.c
+
+MAIN_SRC = main.c
+
+ALL_SRCS = $(MAIN_SRC) $(GAME_SRCS) $(TIMER_SRCS) $(HISTORY_SRCS) $(PROTOCOL_SRCS) $(SESSION_SRCS) $(SERVER_SRCS) $(DB_SRCS)
+
+# Object files
+OBJS = $(ALL_SRCS:%.c=$(BUILD_DIR)/%.o)
+
+# Target executables
+TARGET = $(BIN_DIR)/chess_server
+# CLIENT_TARGET = $(BIN_DIR)/chess_client
+
+# Default target
+all: directories $(TARGET)
+
+# Create directories
+directories:
+	@mkdir -p $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)/src/game
+	@mkdir -p $(BUILD_DIR)/src/timer
+	@mkdir -p $(BUILD_DIR)/src/history
+	@mkdir -p $(BUILD_DIR)/src/protocol
+	@mkdir -p $(BUILD_DIR)/src/session
+	@mkdir -p $(BUILD_DIR)/src/server
+	@mkdir -p $(BUILD_DIR)/src/db
+	@mkdir -p $(BIN_DIR)
+
+# Link
+$(TARGET): $(OBJS)
+	@echo "Linking $@..."
+	$(CC) $(OBJS) -o $@ $(LDFLAGS)
+	@echo "Build complete! Executable: $(TARGET)"
+
+# Build client
+# $(CLIENT_TARGET): $(CLIENT_SRC)
+#	@echo "Building client..."
+#	$(CC) $(CFLAGS) $(CLIENT_SRC) -o $@ -pthread
+#	@echo "Client build complete! Executable: $(CLIENT_TARGET)"
+
+# Compile
+$(BUILD_DIR)/%.o: %.c
+	@echo "Compiling $<..."
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Clean
+clean:
+	@echo "Cleaning..."
+	rm -rf $(BUILD_DIR) $(BIN_DIR)
+	@echo "Clean complete"
+
+# Run server
+run: all
+	@echo "Starting server..."
+	./$(TARGET)
+
+# Run client
+run-client: $(CLIENT_TARGET)
+	@echo "Starting client..."
+	./$(CLIENT_TARGET)
+
+# Install dependencies (Ubuntu/Debian)
+install-deps:
+	@echo "Installing dependencies..."
+	sudo apt-get update
+	sudo apt-get install -y postgresql postgresql-contrib libpq-dev build-essential
+	@echo "Dependencies installed"
+
+# Setup database
+setup-db:
+	@echo "Setting up database..."
+	psql -U postgres -c "CREATE DATABASE chess_game;"
+	psql -U postgres -d chess_game -f ../database/schema.sql
+	@echo "Database setup complete"
+
+# Help
+help:
+	@echo "Chess Game Server - Makefile"
+	@echo ""
+	@echo "Targets:"
+	@echo "  all          - Build server (default)"
+	@echo "  clean        - Remove build files"
+	@echo "  run          - Build and run server"
+	@echo "  install-deps - Install system dependencies"
+	@echo "  setup-db     - Setup PostgreSQL database"
+	@echo "  help         - Show this help"
+	@echo ""
+	@echo "Usage:"
+	@echo "  make              # Build server"
+	@echo "  make clean        # Clean build files"
+	@echo "  make run          # Run server"
+
+.PHONY: all clean run install-deps setup-db help directories

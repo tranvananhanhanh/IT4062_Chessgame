@@ -1,0 +1,388 @@
+#include "game.h"
+#include "history.h"
+#include "timer.h"
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+// External global variables
+extern PGconn *db_conn;
+extern GameManager game_manager;
+
+void game_manager_init(GameManager *manager) {
+    manager->match_count = 0;
+    timer_manager_init(&manager->timer_manager);
+    pthread_mutex_init(&manager->lock, NULL);
+    for (int i = 0; i < MAX_MATCHES; i++) {
+        manager->matches[i] = NULL;
+    }
+}
+
+GameMatch* game_manager_create_match(GameManager *manager, Player white, Player black, PGconn *db) {
+    pthread_mutex_lock(&manager->lock);
+    
+    if (manager->match_count >= MAX_MATCHES) {
+        pthread_mutex_unlock(&manager->lock);
+        return NULL;
+    }
+    
+    // Create match in database first
+    int match_id = history_create_match(db, white.user_id, black.user_id, "pvp");
+    if (match_id < 0) {
+        pthread_mutex_unlock(&manager->lock);
+        return NULL;
+    }
+    
+    // Allocate and initialize match
+    GameMatch *match = (GameMatch*)malloc(sizeof(GameMatch));
+    match->match_id = match_id;
+    match->status = GAME_PLAYING;
+    match->white_player = white;
+    match->black_player = black;
+    match->start_time = time(NULL);
+    match->end_time = 0;
+    match->result = RESULT_NONE;
+    match->winner_id = 0;
+    
+    chess_board_init(&match->board);
+    pthread_mutex_init(&match->lock, NULL);
+    
+    // Add to manager
+    manager->matches[manager->match_count] = match;
+    manager->match_count++;
+    
+    // Create timer for the match (30 minutes per player)
+    timer_manager_create_timer(&manager->timer_manager, match_id, 30, game_timeout_callback);
+    
+    pthread_mutex_unlock(&manager->lock);
+    
+    printf("[Game Manager] Created match %d: %s vs %s\n", 
+           match_id, white.username, black.username);
+    
+    return match;
+}
+
+GameMatch* game_manager_find_match(GameManager *manager, int match_id) {
+    pthread_mutex_lock(&manager->lock);
+    
+    for (int i = 0; i < manager->match_count; i++) {
+        if (manager->matches[i] && manager->matches[i]->match_id == match_id) {
+            GameMatch *match = manager->matches[i];
+            pthread_mutex_unlock(&manager->lock);
+            return match;
+        }
+    }
+    
+    pthread_mutex_unlock(&manager->lock);
+    return NULL;
+}
+
+GameMatch* game_manager_find_match_by_player(GameManager *manager, int socket_fd) {
+    pthread_mutex_lock(&manager->lock);
+    
+    for (int i = 0; i < manager->match_count; i++) {
+        GameMatch *match = manager->matches[i];
+        if (match && (match->white_player.socket_fd == socket_fd || 
+                     match->black_player.socket_fd == socket_fd)) {
+            pthread_mutex_unlock(&manager->lock);
+            return match;
+        }
+    }
+    
+    pthread_mutex_unlock(&manager->lock);
+    return NULL;
+}
+
+void game_manager_remove_match(GameManager *manager, int match_id) {
+    pthread_mutex_lock(&manager->lock);
+    
+    for (int i = 0; i < manager->match_count; i++) {
+        if (manager->matches[i] && manager->matches[i]->match_id == match_id) {
+            // Stop timer for this match
+            timer_manager_stop_timer(&manager->timer_manager, match_id);
+            
+            pthread_mutex_destroy(&manager->matches[i]->lock);
+            free(manager->matches[i]);
+            
+            // Shift remaining matches
+            for (int j = i; j < manager->match_count - 1; j++) {
+                manager->matches[j] = manager->matches[j + 1];
+            }
+            manager->matches[manager->match_count - 1] = NULL;
+            manager->match_count--;
+            
+            printf("[Game Manager] Removed match %d\n", match_id);
+            break;
+        }
+    }
+    
+    pthread_mutex_unlock(&manager->lock);
+}
+
+int game_match_make_move(GameMatch *match, int player_socket_fd, int player_id, const char *from, const char *to, PGconn *db) {
+    pthread_mutex_lock(&match->lock);
+    
+    // Determine which player is making the move
+    Player *current_player = NULL;
+    Player *opponent = NULL;
+    
+    // Prioritize player_id check if provided (for API calls)
+    if (player_id > 0) {
+        if (match->white_player.user_id == player_id) {
+            current_player = &match->white_player;
+            opponent = &match->black_player;
+        } else if (match->black_player.user_id == player_id) {
+            current_player = &match->black_player;
+            opponent = &match->white_player;
+        } else {
+            pthread_mutex_unlock(&match->lock);
+            return 0;
+        }
+    } else {
+        // Fallback to socket_fd check (for CLI)
+        if (match->white_player.socket_fd == player_socket_fd) {
+            current_player = &match->white_player;
+            opponent = &match->black_player;
+        } else if (match->black_player.socket_fd == player_socket_fd) {
+            current_player = &match->black_player;
+            opponent = &match->white_player;
+        } else {
+            pthread_mutex_unlock(&match->lock);
+            return 0;
+        }
+    }
+    
+    // Check it's player's turn
+    if ((match->board.current_turn == COLOR_WHITE && current_player->color != COLOR_WHITE) ||
+        (match->board.current_turn == COLOR_BLACK && current_player->color != COLOR_BLACK)) {
+        pthread_mutex_unlock(&match->lock);
+        send_to_client(player_socket_fd, "ERROR|Not your turn\n");
+        return 0;
+    }
+    
+    // Parse move
+    Move move;
+    notation_to_coords(from, &move.from_row, &move.from_col);
+    notation_to_coords(to, &move.to_row, &move.to_col);
+    move.piece = match->board.board[move.from_row][move.from_col];
+    move.captured_piece = match->board.board[move.to_row][move.to_col];
+    move.is_castling = 0;
+    move.is_en_passant = 0;
+    move.is_promotion = 0;
+    move.promotion_piece = 0;
+    
+    // Validate move
+    if (!validate_move(&match->board, &move, current_player->color)) {
+        pthread_mutex_unlock(&match->lock);
+        send_to_client(player_socket_fd, "ERROR|Invalid move\n");
+        return 0;
+    }
+    
+    // Execute move
+    execute_move(&match->board, &move);
+    
+    // Handle timer: pause current player's timer and resume opponent's timer
+    // Note: In chess, each player has their own timer that runs when it's their turn
+    // For simplicity, we'll use one timer per match that resets on each move
+    // In a real implementation, you'd have separate timers for each player
+    
+    // Save move to database
+    char notation[16];
+    sprintf(notation, "%s%s", from, to);
+    history_save_move(db, match->match_id, current_player->user_id, notation, match->board.fen);
+    
+    // Send success to current player
+    char response[BUFFER_SIZE];
+    sprintf(response, "MOVE_SUCCESS|%s|%s\n", notation, match->board.fen);
+    send_to_client(player_socket_fd, response);
+    
+    // Broadcast to opponent (only if different socket - for CLI mode)
+    if (opponent->socket_fd != player_socket_fd && opponent->socket_fd > 0) {
+        sprintf(response, "OPPONENT_MOVE|%s|%s\n", notation, match->board.fen);
+        send_to_client(opponent->socket_fd, response);
+    }
+    
+    printf("[Match %d] Move: %s by %s (FEN: %s)\n", 
+           match->match_id, notation, current_player->username, match->board.fen);
+    
+    // Check game end
+    game_match_check_end_condition(match, db);
+    
+    pthread_mutex_unlock(&match->lock);
+    
+    return 1;
+}
+
+int game_match_check_end_condition(GameMatch *match, PGconn *db) {
+    PlayerColor next_player = match->board.current_turn;
+    
+    // Check checkmate
+    if (is_checkmate(&match->board, next_player)) {
+        match->status = GAME_FINISHED;
+        match->result = (next_player == COLOR_WHITE) ? RESULT_BLACK_WIN : RESULT_WHITE_WIN;
+        match->winner_id = (next_player == COLOR_WHITE) ? 
+                          match->black_player.user_id : match->white_player.user_id;
+        match->end_time = time(NULL);
+        
+        // Update database
+        const char *result_str = (match->result == RESULT_WHITE_WIN) ? "white_win" : "black_win";
+        history_update_match_result(db, match->match_id, result_str, match->winner_id);
+        
+        // Update ELO
+        int winner_id = match->winner_id;
+        int loser_id = (winner_id == match->white_player.user_id) ? 
+                       match->black_player.user_id : match->white_player.user_id;
+        stats_update_elo(db, winner_id, loser_id);
+        
+        // Stop timer
+        timer_manager_stop_timer(&game_manager.timer_manager, match->match_id);
+        
+        // Broadcast game end
+        char msg[BUFFER_SIZE];
+        sprintf(msg, "GAME_END|checkmate|winner:%d\n", match->winner_id);
+        broadcast_to_match(match, msg, -1);
+        
+        printf("[Match %d] CHECKMATE! Winner: %d\n", match->match_id, match->winner_id);
+        
+        return 1;
+    }
+    
+    // Check stalemate
+    if (is_stalemate(&match->board, next_player)) {
+        match->status = GAME_FINISHED;
+        match->result = RESULT_DRAW;
+        match->end_time = time(NULL);
+        
+        history_update_match_result(db, match->match_id, "draw", 0);
+        
+        // Stop timer
+        timer_manager_stop_timer(&game_manager.timer_manager, match->match_id);
+        
+        char msg[BUFFER_SIZE];
+        sprintf(msg, "GAME_END|stalemate|draw\n");
+        broadcast_to_match(match, msg, -1);
+        
+        printf("[Match %d] STALEMATE! Draw\n", match->match_id);
+        
+        return 1;
+    }
+    
+    // Check 50-move rule
+    if (match->board.halfmove_clock >= 100) {
+        match->status = GAME_FINISHED;
+        match->result = RESULT_DRAW;
+        match->end_time = time(NULL);
+        
+        history_update_match_result(db, match->match_id, "draw", 0);
+        
+        // Stop timer
+        timer_manager_stop_timer(&game_manager.timer_manager, match->match_id);
+        
+        char msg[BUFFER_SIZE];
+        sprintf(msg, "GAME_END|fifty_move_rule|draw\n");
+        broadcast_to_match(match, msg, -1);
+        
+        printf("[Match %d] Draw by 50-move rule\n", match->match_id);
+        
+        return 1;
+    }
+    
+    return 0;
+}
+
+void game_match_handle_surrender(GameMatch *match, int player_socket_fd, PGconn *db) {
+    pthread_mutex_lock(&match->lock);
+    
+    if (match->white_player.socket_fd == player_socket_fd) {
+        match->result = RESULT_BLACK_WIN;
+        match->winner_id = match->black_player.user_id;
+    } else {
+        match->result = RESULT_WHITE_WIN;
+        match->winner_id = match->white_player.user_id;
+    }
+    
+    match->status = GAME_FINISHED;
+    match->end_time = time(NULL);
+    
+    history_update_match_result(db, match->match_id, "surrender", match->winner_id);
+    
+    int winner_id = match->winner_id;
+    int loser_id = (winner_id == match->white_player.user_id) ? 
+                   match->black_player.user_id : match->white_player.user_id;
+    stats_update_elo(db, winner_id, loser_id);
+    
+    // Stop timer
+    timer_manager_stop_timer(&game_manager.timer_manager, match->match_id);
+    
+    char msg[BUFFER_SIZE];
+    sprintf(msg, "GAME_END|surrender|winner:%d\n", match->winner_id);
+    broadcast_to_match(match, msg, -1);
+    
+    // Send response to the surrendering player
+    char response[BUFFER_SIZE];
+    sprintf(response, "SURRENDER_SUCCESS|%d\n", match->winner_id);
+    send_to_client(player_socket_fd, response);
+    
+    printf("[Match %d] Surrender! Winner: %d\n", match->match_id, match->winner_id);
+    
+    pthread_mutex_unlock(&match->lock);
+}
+
+void send_to_client(int socket_fd, const char *message) {
+    send(socket_fd, message, strlen(message), 0);
+}
+
+void broadcast_to_match(GameMatch *match, const char *message, int exclude_fd) {
+    if (match->white_player.socket_fd != exclude_fd && match->white_player.is_online) {
+        send_to_client(match->white_player.socket_fd, message);
+    }
+    if (match->black_player.socket_fd != exclude_fd && match->black_player.is_online) {
+        send_to_client(match->black_player.socket_fd, message);
+    }
+}
+
+// Timer callback function for game timeout
+void game_timeout_callback(int match_id) {
+    printf("[Timer] Game %d timed out - ending game\n", match_id);
+    
+    // Find the match and end it with timeout
+    GameMatch *match = game_manager_find_match(&game_manager, match_id);
+    if (match) {
+        pthread_mutex_lock(&match->lock);
+        
+        if (match->status == GAME_PLAYING) {
+            match->status = GAME_FINISHED;
+            match->result = RESULT_TIMEOUT;
+            match->end_time = time(NULL);
+            
+            // Determine winner based on whose turn it was
+            PlayerColor current_turn = match->board.current_turn;
+            if (current_turn == COLOR_WHITE) {
+                match->winner_id = match->black_player.user_id;
+                match->result = RESULT_WHITE_TIMEOUT;
+            } else {
+                match->winner_id = match->white_player.user_id;
+                match->result = RESULT_BLACK_TIMEOUT;
+            }
+            
+            // Update database
+            const char *result_str = (match->result == RESULT_WHITE_TIMEOUT) ? "white_timeout" : "black_timeout";
+            history_update_match_result(db_conn, match->match_id, result_str, match->winner_id);
+            
+            // Update ELO
+            int winner_id = match->winner_id;
+            int loser_id = (winner_id == match->white_player.user_id) ? 
+                           match->black_player.user_id : match->white_player.user_id;
+            stats_update_elo(db_conn, winner_id, loser_id);
+            
+            // Broadcast timeout
+            char msg[BUFFER_SIZE];
+            sprintf(msg, "GAME_END|timeout|winner:%d\n", match->winner_id);
+            broadcast_to_match(match, msg, -1);
+            
+            printf("[Match %d] TIMEOUT! Winner: %d\n", match->match_id, match->winner_id);
+        }
+        
+        pthread_mutex_unlock(&match->lock);
+    }
+}
