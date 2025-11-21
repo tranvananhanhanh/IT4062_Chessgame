@@ -1,0 +1,45 @@
+# Simple Makefile cho C Chess Server
+
+# Biến
+CC       := gcc
+SRC_DIR  := src
+BIN      := chess_server
+CFLAGS   := -Wall -O2 -std=c11
+LDFLAGS  := 
+PORT     ?= 12345
+
+# Tự động lấy tất cả file .c trong src
+SRCS := $(wildcard $(SRC_DIR)/*.c)
+OBJS := $(SRCS:.c=.o)
+
+# Mặc định
+all: build
+
+build: $(BIN)
+
+$(BIN): $(OBJS)
+	$(CC) $(OBJS) -o $(BIN) $(LDFLAGS)
+	@echo "Build xong -> ./$(BIN)"
+
+# Quy tắc biên dịch từng .c -> .o
+$(SRC_DIR)/%.o: $(SRC_DIR)/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+run: build
+	@echo "Chạy server (PORT=$(PORT))..."
+	@./$(BIN)
+
+clean:
+	@echo "Xóa file build..."
+	@rm -f $(BIN) $(OBJS)
+
+re: clean all
+
+print-src:
+	@echo $(SRCS)
+
+test-move:
+	@echo "Gửi lệnh MOVE mock..."
+	@echo "MOVE|game-123|rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1|e2e4" | nc 127.0.0.1 $(PORT)
+
+.PHONY: all build run clean re print-src test-move
