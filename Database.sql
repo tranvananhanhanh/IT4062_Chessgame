@@ -9,9 +9,11 @@
 CREATE TABLE users (
     user_id SERIAL PRIMARY KEY,
     name VARCHAR(50) UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     state VARCHAR(20) CHECK (state IN ('offline', 'online', 'in_game')) DEFAULT 'offline',
-    elo_point INT DEFAULT 1000
+    elo_point INT DEFAULT 1000,
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ===========================================
