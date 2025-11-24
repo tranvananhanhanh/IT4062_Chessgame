@@ -1,4 +1,4 @@
-const navItems = [
+const baseNavItems = (onHistoryClick) => [
   {
     label: 'Play',
     icon: '♟️',
@@ -16,10 +16,16 @@ const navItems = [
   { label: 'Watch', icon: '▶️' },
   { label: 'News', icon: '📰' },
   { label: 'Social', icon: '👥' },
-  { label: 'More', icon: '⋯' },
+  {
+    label: 'More',
+    icon: '⋯',
+    submenu: [
+      { label: 'Lịch sử chơi (Frontend API mới)', icon: '📜', onClick: onHistoryClick },
+    ],
+  },
 ]
 
-const SideNav = ({ onLoginClick, onRegisterClick }) => (
+const SideNav = ({ onLoginClick, onRegisterClick, onHistoryClick }) => (
   <aside className="side-nav">
     <div className="nav-brand">
       <span className="brand-icon">♙</span>
@@ -30,7 +36,7 @@ const SideNav = ({ onLoginClick, onRegisterClick }) => (
     </div>
 
     <ul className="nav-menu">
-      {navItems.map((item) => (
+      {baseNavItems(onHistoryClick).map((item) => (
         <li key={item.label} className={item.submenu ? 'has-flyout' : ''}>
           <button type="button">
             <span className="item-icon" aria-hidden="true">
@@ -43,7 +49,7 @@ const SideNav = ({ onLoginClick, onRegisterClick }) => (
               <ul>
                 {item.submenu.map((child) => (
                   <li key={child.label}>
-                    <button type="button">
+                    <button type="button" onClick={child.onClick}>
                       <span aria-hidden="true">{child.icon}</span>
                       {child.label}
                     </button>
