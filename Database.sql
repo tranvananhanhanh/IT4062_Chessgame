@@ -2,6 +2,8 @@
 -- DATABASE: Chess Game (PostgreSQL)
 -- Description: Real-time 1v1 Chess System
 -- ===========================================
+DROP DATABASE IF EXISTS chess_db;
+CREATE DATABASE chess_db;
 
 -- ===========================================
 -- TABLE: users
@@ -20,7 +22,7 @@ CREATE TABLE users (
 CREATE TABLE match_game (
     match_id SERIAL PRIMARY KEY,
     type VARCHAR(10) CHECK (type IN ('pvp', 'bot')) DEFAULT 'pvp',
-    status VARCHAR(15) CHECK (status IN ('waiting', 'playing', 'finished', 'aborted')) DEFAULT 'waiting',
+    status VARCHAR(15) CHECK (status IN ('waiting', 'playing','paused', 'finished', 'aborted')) DEFAULT 'waiting',
     starttime TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     endtime TIMESTAMP NULL,
     result VARCHAR(15) CHECK (result IN ('white_win', 'black_win', 'draw', 'surrender', 'aborted')),

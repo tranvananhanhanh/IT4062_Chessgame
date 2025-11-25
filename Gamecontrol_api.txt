@@ -1,0 +1,45 @@
+Có thể paste đoạn su chạy trong terminal . 
+Lưu ý match_id phải lấy từ trận đấu hiện tại và trạng thái trận đấu đang là playing (trừ các api yêu cầu đấu lại)
+
+
+
+# Pause
+curl -X POST http://localhost:5002/api/game/control \
+  -H "Content-Type: application/json" \
+  -d '{"match_id": 1, "player_id": 1, "action": "PAUSE"}'
+
+# Resume
+curl -X POST http://localhost:5002/api/game/control \
+  -H "Content-Type: application/json" \
+  -d '{"match_id": 1, "player_id": 1, "action": "RESUME"}'
+
+# Xin hòa
+curl -X POST http://localhost:5002/api/game/control \
+  -H "Content-Type: application/json" \
+  -d '{"match_id": 1, "player_id": 1, "action": "DRAW"}'
+
+# Từ chối hòa
+curl -X POST http://localhost:5002/api/game/control \
+  -H "Content-Type: application/json" \
+  -d '{"match_id": 1, "player_id": 2, "action": "DRAW_DECLINE"}'
+
+# Chấp nhận hòa
+curl -X POST http://localhost:5002/api/game/control \
+  -H "Content-Type: application/json" \
+  -d '{"match_id": 1, "player_id": 2, "action": "DRAW_ACCEPT"}'
+
+
+# Yêu cầu đấu lại
+curl -X POST http://localhost:5002/api/game/control \
+  -H "Content-Type: application/json" \
+  -d '{"match_id": 1, "player_id": 2, "action": "REMATCH"}'
+
+# Chấp nhận đấu lại
+curl -X POST http://localhost:5002/api/game/control \
+  -H "Content-Type: application/json" \
+  -d '{"match_id": 1, "player_id": 1, "action": "REMATCH_ACCEPT"}'
+
+# Từ chối đấu lại
+curl -X POST http://localhost:5002/api/game/control \
+  -H "Content-Type: application/json" \
+  -d '{"match_id": 1, "player_id": 1, "action": "REMATCH_DECLINE"}'

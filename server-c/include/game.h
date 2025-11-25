@@ -35,8 +35,9 @@ typedef enum {
 typedef enum {
     GAME_WAITING,
     GAME_PLAYING,
+    GAME_PAUSED = 2,      // ✅ NEW
     GAME_FINISHED,
-    GAME_ABORTED
+    GAME_ABORTED,
 } GameStatus;
 
 // Game result
@@ -116,6 +117,7 @@ typedef struct {
     time_t end_time;
     GameResult result;
     int winner_id;
+    int draw_requester_id;  // ID of player who requested draw (0 if none)
     pthread_mutex_t lock;
 } GameMatch;
 
@@ -165,6 +167,7 @@ PlayerColor get_piece_color(char piece);
 // ============ GAME MANAGER ============
 void game_manager_init(GameManager *manager);
 GameMatch* game_manager_create_match(GameManager *manager, Player white, Player black, PGconn *db);
+GameMatch* game_manager_create_bot_match(GameManager *manager, Player white, Player black, PGconn *db);
 GameMatch* game_manager_find_match(GameManager *manager, int match_id);
 GameMatch* game_manager_find_match_by_player(GameManager *manager, int socket_fd);
 void game_manager_remove_match(GameManager *manager, int match_id);

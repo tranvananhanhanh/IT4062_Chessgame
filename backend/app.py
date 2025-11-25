@@ -10,6 +10,7 @@ CORS(app)  # Enable CORS for React frontend
 game_service = get_game_service()
 history_service = get_history_service()
 
+@app.route('/health', methods=['GET'])
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -115,6 +116,88 @@ def surrender_game():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/game/control', methods=['POST'])
+def game_control():
+    """
+    Game control actions: pause, resume, draw request/accept/decline, rematch
+    Expected JSON: {"match_id": 1, "player_id": 1, "action": "REMATCH"}
+    Actions: PAUSE, RESUME, DRAW, DRAW_ACCEPT, DRAW_DECLINE, REMATCH, REMATCH_ACCEPT, REMATCH_DECLINE
+    """
+    try:
+        data = request.get_json()
+        match_id = data.get('match_id')
+        player_id = data.get('player_id')
+        action = data.get('action', '').upper()
+
+        if not all([match_id, player_id, action]):
+            return jsonify({"error": "Missing required fields"}), 400
+
+        # ✅ Add rematch actions to valid actions
+        valid_actions = ['PAUSE', 'RESUME', 'DRAW', 'DRAW_ACCEPT', 'DRAW_DECLINE', 
+                        'REMATCH', 'REMATCH_ACCEPT', 'REMATCH_DECLINE']
+        if action not in valid_actions:
+            return jsonify({"error": f"Invalid action. Must be one of: {', '.join(valid_actions)}"}), 400
+
+        result = game_service.game_control(match_id, player_id, action)
+
+        if result["success"]:
+            return jsonify(result)
+        else:
+            return jsonify({"error": result["error"]}), 500
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ==================== BOT MODE ENDPOINTS ====================
+
+@app.route('/api/mode/bot', methods=['POST'])
+def start_bot_mode():
+    """
+    Initialize a bot game
+    Expected JSON: {"user_id": 1}
+    """
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+
+        if not user_id:
+            return jsonify({"error": "Missing user_id"}), 400
+
+        result = game_service.start_bot_game(user_id)
+
+        if result["success"]:
+            return jsonify(result)
+        else:
+            return jsonify({"error": result["error"]}), 500
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/game/bot/move', methods=['POST'])
+def make_bot_move():
+    """
+    Make a move in bot game
+    Expected JSON: {"match_id": 1, "move": "e2e4"}
+    Returns player move result + bot response
+    """
+    try:
+        data = request.get_json()
+        match_id = data.get('match_id')
+        move = data.get('move')
+
+        if not all([match_id, move]):
+            return jsonify({"error": "Missing required fields"}), 400
+
+        result = game_service.make_bot_move(match_id, move)
+
+        if result["success"]:
+            return jsonify(result)
+        else:
+            return jsonify({"error": result["error"]}), 500
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/history/<int:user_id>', methods=['GET'])
 def get_game_history(user_id):
     """
@@ -166,4 +249,4 @@ def get_player_stats(user_id):
         return jsonify({"error": str(e), "stats": {}}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5002)

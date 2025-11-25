@@ -49,7 +49,9 @@ int db_check_connection(PGconn *conn);
 
 // ============ MATCH HISTORY ============
 int history_create_match(PGconn *conn, int user1_id, int user2_id, const char *type);
+int history_create_bot_match(PGconn *conn, int user_id, const char *type);
 int history_save_move(PGconn *conn, int match_id, int user_id, const char *notation, const char *fen);
+int history_save_bot_move(PGconn *conn, int match_id, const char *notation, const char *fen);
 int history_update_match_result(PGconn *conn, int match_id, const char *result, int winner_id);
 int history_get_user_matches(PGconn *conn, int user_id, MatchHistoryItem *items, int *count);
 
