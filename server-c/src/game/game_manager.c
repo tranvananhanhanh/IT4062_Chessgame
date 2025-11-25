@@ -62,6 +62,50 @@ GameMatch* game_manager_create_match(GameManager *manager, Player white, Player 
     return match;
 }
 
+GameMatch* game_manager_create_bot_match(GameManager *manager, Player white, Player black, PGconn *db) {
+    pthread_mutex_lock(&manager->lock);
+    
+    if (manager->match_count >= MAX_MATCHES) {
+        pthread_mutex_unlock(&manager->lock);
+        return NULL;
+    }
+    
+    // Create bot match in database (bot player will have NULL user_id)
+    int match_id = history_create_bot_match(db, white.user_id, "bot");
+    if (match_id < 0) {
+        pthread_mutex_unlock(&manager->lock);
+        return NULL;
+    }
+    
+    // Allocate and initialize match
+    GameMatch *match = (GameMatch*)malloc(sizeof(GameMatch));
+    match->match_id = match_id;
+    match->status = GAME_PLAYING;
+    match->white_player = white;
+    match->black_player = black;
+    match->start_time = time(NULL);
+    match->end_time = 0;
+    match->result = RESULT_NONE;
+    match->winner_id = 0;
+    
+    chess_board_init(&match->board);
+    pthread_mutex_init(&match->lock, NULL);
+    
+    // Add to manager
+    manager->matches[manager->match_count] = match;
+    manager->match_count++;
+    
+    // Create timer for the match (30 minutes per player)
+    timer_manager_create_timer(&manager->timer_manager, match_id, 30, game_timeout_callback);
+    
+    pthread_mutex_unlock(&manager->lock);
+    
+    printf("[Game Manager] Created bot match %d: %s vs %s\n", 
+           match_id, white.username, black.username);
+    
+    return match;
+}
+
 GameMatch* game_manager_find_match(GameManager *manager, int match_id) {
     pthread_mutex_lock(&manager->lock);
     

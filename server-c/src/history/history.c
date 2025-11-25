@@ -11,9 +11,19 @@ int history_create_match(PGconn *conn, int user1_id, int user2_id, const char *t
     return db_create_match(conn, user1_id, user2_id, type);
 }
 
+// Create bot match in database with NULL user_id for bot
+int history_create_bot_match(PGconn *conn, int user_id, const char *type) {
+    return db_create_bot_match(conn, user_id, type);
+}
+
 // Save move to database
 int history_save_move(PGconn *conn, int match_id, int user_id, const char *notation, const char *fen) {
     return db_save_move(conn, match_id, user_id, notation, fen);
+}
+
+// Save bot move to database with NULL user_id
+int history_save_bot_move(PGconn *conn, int match_id, const char *notation, const char *fen) {
+    return db_save_bot_move(conn, match_id, notation, fen);
 }
 
 // Update match result

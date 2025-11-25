@@ -29,6 +29,33 @@ int db_save_move(PGconn *conn, int match_id, int user_id,
     return 1;
 }
 
+int db_save_bot_move(PGconn *conn, int match_id, const char *notation, const char *fen) {
+    if (!db_check_connection(conn)) return 0;
+    
+    char query[1024];
+    char escaped_fen[512];
+    
+    // Escape FEN string
+    PQescapeStringConn(conn, escaped_fen, fen, strlen(fen), NULL);
+    
+    sprintf(query,
+        "INSERT INTO move (match_id, user_id, notation, fen_after, created_at) "
+        "VALUES (%d, NULL, '%s', '%s', NOW())",
+        match_id, notation, escaped_fen);
+    
+    PGresult *res = PQexec(conn, query);
+    
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        fprintf(stderr, "[DB] Save bot move failed: %s\n", PQerrorMessage(conn));
+        PQclear(res);
+        return 0;
+    }
+    
+    PQclear(res);
+    printf("[DB] Saved bot move: %s for match %d\n", notation, match_id);
+    return 1;
+}
+
 int db_get_match_moves(PGconn *conn, int match_id, char *output, int output_size) {
     if (!db_check_connection(conn)) {
         snprintf(output, output_size, "ERROR|Database connection failed\n");

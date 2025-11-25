@@ -44,6 +44,48 @@ int db_create_match(PGconn *conn, int user1_id, int user2_id, const char *type) 
     return match_id;
 }
 
+// Create a bot match with NULL user_id for bot player
+int db_create_bot_match(PGconn *conn, int user_id, const char *type) {
+    if (!db_check_connection(conn)) return -1;
+    
+    // Insert match
+    const char *query = "INSERT INTO match_game (type, status, starttime) "
+                       "VALUES ($1, 'playing', NOW()) RETURNING match_id";
+    
+    const char *values[1] = {type};
+    PGresult *res = PQexecParams(conn, query, 1, NULL, values, NULL, NULL, 0);
+    
+    if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+        fprintf(stderr, "[DB] Create bot match failed: %s\n", PQerrorMessage(conn));
+        PQclear(res);
+        return -1;
+    }
+    
+    int match_id = atoi(PQgetvalue(res, 0, 0));
+    PQclear(res);
+    
+    // Insert match players: human player (white) and bot (black with NULL user_id)
+    char insert_players[512];
+    sprintf(insert_players,
+        "INSERT INTO match_player (match_id, user_id, color, is_bot) VALUES "
+        "(%d, %d, 'white', false), (%d, NULL, 'black', true)",
+        match_id, user_id, match_id);
+    
+    res = PQexec(conn, insert_players);
+    
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        fprintf(stderr, "[DB] Insert bot match players failed: %s\n", PQerrorMessage(conn));
+        PQclear(res);
+        return -1;
+    }
+    
+    PQclear(res);
+    
+    printf("[DB] Created bot match %d: user %d vs AI Bot\n", match_id, user_id);
+    
+    return match_id;
+}
+
 int db_update_match_status(PGconn *conn, int match_id, const char *status, 
                            const char *result, int winner_id) {
     if (!db_check_connection(conn)) return 0;
