@@ -248,5 +248,105 @@ def get_player_stats(user_id):
     except Exception as e:
         return jsonify({"error": str(e), "stats": {}}), 500
 
+# ==================== FRIENDSHIP API ====================
+
+@app.route('/api/friend/request', methods=['POST'])
+def send_friend_request():
+    """
+    Send a friend request
+    Body: { "user_id": 1, "friend_id": 2 }
+    """
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        friend_id = data.get('friend_id')
+        if not user_id or not friend_id or user_id == friend_id:
+            return jsonify({"success": False, "error": "Invalid user_id or friend_id"}), 400
+        # Gửi command tới C server
+        command = f"FRIEND_REQUEST|{user_id}|{friend_id}"
+        response = game_service.c_bridge.send_command(command)
+        if response and response.startswith("FRIEND_REQUESTED"):
+            return jsonify({"success": True, "message": "Friend request sent"})
+        else:
+            return jsonify({"success": False, "error": response or "Failed to send friend request"}), 400
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/friend/accept', methods=['POST'])
+def accept_friend_request():
+    """
+    Accept a friend request
+    Body: { "user_id": 2, "friend_id": 1 }
+    """
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        friend_id = data.get('friend_id')
+        if not user_id or not friend_id:
+            return jsonify({"success": False, "error": "Invalid user_id or friend_id"}), 400
+        command = f"FRIEND_ACCEPT|{user_id}|{friend_id}"
+        response = game_service.c_bridge.send_command(command)
+        if response and response.startswith("FRIEND_ACCEPTED"):
+            return jsonify({"success": True, "message": "Friend request accepted"})
+        else:
+            return jsonify({"success": False, "error": response or "Failed to accept friend request"}), 400
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/friend/decline', methods=['POST'])
+def decline_friend_request():
+    """
+    Decline a friend request
+    Body: { "user_id": 2, "friend_id": 1 }
+    """
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        friend_id = data.get('friend_id')
+        if not user_id or not friend_id:
+            return jsonify({"success": False, "error": "Invalid user_id or friend_id"}), 400
+        command = f"FRIEND_DECLINE|{user_id}|{friend_id}"
+        response = game_service.c_bridge.send_command(command)
+        if response and response.startswith("FRIEND_DECLINED"):
+            return jsonify({"success": True, "message": "Friend request declined"})
+        else:
+            return jsonify({"success": False, "error": response or "Failed to decline friend request"}), 400
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/friend/list/<int:user_id>', methods=['GET'])
+def list_friends(user_id):
+    """
+    Get accepted friends list
+    """
+    try:
+        command = f"FRIEND_LIST|{user_id}"
+        response = game_service.c_bridge.send_command(command)
+        if response and response.startswith("FRIEND_LIST|"):
+            ids = response.strip().split('|')[1]
+            friend_ids = ids.split(',') if ids else []
+            return jsonify({"success": True, "friends": friend_ids})
+        else:
+            return jsonify({"success": False, "error": response or "Failed to get friend list", "friends": []}), 400
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e), "friends": []}), 500
+
+@app.route('/api/friend/requests/<int:user_id>', methods=['GET'])
+def list_friend_requests(user_id):
+    """
+    Get pending friend requests
+    """
+    try:
+        command = f"FRIEND_REQUESTS|{user_id}"
+        response = game_service.c_bridge.send_command(command)
+        if response and response.startswith("FRIEND_REQUESTS|"):
+            ids = response.strip().split('|')[1]
+            request_ids = ids.split(',') if ids else []
+            return jsonify({"success": True, "requests": request_ids})
+        else:
+            return jsonify({"success": False, "error": response or "Failed to get friend requests", "requests": []}), 400
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e), "requests": []}), 500
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5002)
