@@ -1,0 +1,72 @@
+@import './styles/layout.css';
+@import './styles/nav.css';
+@import './styles/login.css';
+@import './styles/board.css';
+@import './styles/controls.css';
+
+.history-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 12;
+  padding: 20px;
+}
+
+.history-dialog {
+  width: min(1100px, 100%);
+  max-height: 90vh;
+  background: #0c1324;
+  border-radius: 18px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, rgba(82, 210, 255, 0.14), rgba(12, 19, 36, 0.95));
+  color: #eaf0ff;
+}
+
+.history-eyebrow {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7cd6ff;
+}
+
+.history-header h3 {
+  margin: 4px 0 0;
+  font-size: 20px;
+}
+
+.history-close {
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: #eaf0ff;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  transition: all 0.18s ease;
+}
+
+.history-close:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.history-content {
+  padding: 16px;
+  overflow: auto;
+}
