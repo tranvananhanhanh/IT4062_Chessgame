@@ -84,6 +84,30 @@ CREATE TABLE move (
 );
 
 -- ===========================================
+-- TABLE: friendship 
+-- ===========================================
+CREATE TABLE friendship (
+    friendship_id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL,
+    friend_id INT NOT NULL,
+    status VARCHAR(20) CHECK (status IN ('pending', 'accepted', 'declined', 'blocked')) DEFAULT 'pending',
+    requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    responded_at TIMESTAMP NULL,
+
+    CONSTRAINT fk_friend_user FOREIGN KEY (user_id)
+        REFERENCES users(user_id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_friend_friend FOREIGN KEY (friend_id)
+        REFERENCES users(user_id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    CONSTRAINT unique_friendship UNIQUE (user_id, friend_id)
+);
+
+-- ===========================================
 -- INDEXES
 -- ===========================================
 CREATE INDEX idx_user_state ON users(state);
@@ -112,3 +136,10 @@ INSERT INTO move (match_id, user_id, notation, fen_after)
 VALUES
 (1, 1, 'e2e4', 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1'),
 (1, 2, 'e7e5', 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2');
+
+ALTER TABLE match_game 
+DROP CONSTRAINT IF EXISTS match_game_status_check;
+
+ALTER TABLE match_game 
+ADD CONSTRAINT match_game_status_check 
+CHECK (status IN ('waiting', 'playing', 'paused', 'finished', 'aborted'));
