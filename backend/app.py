@@ -2,13 +2,216 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from services.game_service import get_game_service
 from services.history_service import get_history_service
+from services.auth_service import get_auth_service
+from services.matchmaking_service import (
+    join_matchmaking,
+    check_match_status,
+    cancel_matchmaking,
+)
+from models import db, User, MatchGame, MatchPlayer
+import os
+
+
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for React frontend
 
+# ==================== DATABASE CONFIG ====================
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://postgres:123456@localhost:5432/chess_db"  # <-- tùy chỉnh
+)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+db.init_app(app)
+
 # Initialize services
 game_service = get_game_service()
 history_service = get_history_service()
+auth_service = get_auth_service()     # mới cho register
+
+@app.route('/api/auth/register', methods=['POST'])
+def register():
+    """
+    Register a new user
+    Expected JSON: {"username": "alice", "password": "123456"}
+    """
+    try:
+        data = request.get_json() or {}
+        username = data.get("username")
+        email = data.get("email")
+        password = data.get("password")
+
+        if not username or not password:
+            return jsonify({
+                "success": False,
+                "error": "username and password are required"
+            }), 400
+
+        result = auth_service.register(username, password, email)
+
+        status_code = 201 if result.get("success") else 400
+        return jsonify(result), status_code
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# ==================== MATCHMAKING (KHÔNG DÙNG TOKEN) ====================
+
+def create_match_from_matchmaking(current_user: User, opponent_username: str, my_color: str) -> MatchGame:
+    """
+    Được gọi khi matchmaking trả về status = 'matched'.
+
+    - Tạo 1 bản ghi match_game (type='pvp', status='playing')
+    - Tạo 2 bản ghi match_player (white/black)
+    - Đổi state 2 user thành 'in_game'
+    """
+    # Tìm đối thủ theo username
+    opponent = User.query.filter_by(name=opponent_username).first()
+    if not opponent:
+        raise Exception(f"Opponent user not found: {opponent_username}")
+
+    # Tạo match_game
+    match = MatchGame(
+        type="pvp",
+        status="playing",
+    )
+    db.session.add(match)
+    db.session.flush()  # để có match.match_id
+
+    # Xác định màu mình & đối thủ
+    if my_color == "white":
+        me_color = "white"
+        opp_color = "black"
+    else:
+        me_color = "black"
+        opp_color = "white"
+
+    # Mình
+    mp_me = MatchPlayer(
+        match_id=match.match_id,
+        user_id=current_user.user_id,
+        color=me_color,
+        is_bot=False,
+    )
+
+    # Đối thủ
+    mp_opp = MatchPlayer(
+        match_id=match.match_id,
+        user_id=opponent.user_id,
+        color=opp_color,
+        is_bot=False,
+    )
+
+    db.session.add(mp_me)
+    db.session.add(mp_opp)
+
+    # Đổi state 2 thằng thành in_game
+    current_user.state = "in_game"
+    opponent.state = "in_game"
+
+    db.session.commit()
+    return match
+
+@app.post("/matchmaking/join")
+def matchmaking_join():
+    data = request.get_json() or {}
+    username = data.get("username")
+
+    if not username:
+        return jsonify({"error": "username is required"}), 400
+
+    user = User.query.filter_by(name=username).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    # 0) Không cho join nếu user đang ở trong một trận active
+    active_match = (
+        db.session.query(MatchGame)
+        .join(MatchPlayer, MatchGame.match_id == MatchPlayer.match_id)
+        .filter(
+            MatchPlayer.user_id == user.user_id,
+            MatchGame.status.in_(["waiting", "playing", "paused"])
+        )
+        .first()
+    )
+
+    if active_match:
+        return jsonify({
+            "error": "User is already in an active match",
+            "match_id": active_match.match_id,
+            "match_status": active_match.status,
+        }), 400
+
+    # 1) Gửi sang C server để ghép cặp
+    try:
+        result = join_matchmaking(user.name, user.elo_point)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    status = result.get("status")
+
+    # 2) Chỉ vào hàng đợi
+    if status == "queued":
+        # đảm bảo state = 'online'
+        if user.state != "online":
+            user.state = "online"
+            db.session.commit()
+        return jsonify(result)
+
+    # 3) Đã ghép cặp thành công -> tạo match_game + match_player + state = in_game
+    if status == "matched":
+        opponent_username = result.get("opponent_id")
+        my_color = result.get("color")
+
+        try:
+            match = create_match_from_matchmaking(user, opponent_username, my_color)
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": f"Failed to create match in DB: {str(e)}"}), 500
+
+        # Gắn thêm match_id trong DB trả về cho frontend
+        result["db_match_id"] = match.match_id
+        return jsonify(result)
+
+    # 4) Trường hợp không mong đợi
+    return jsonify({
+        "error": "Unknown matchmaking status",
+        "raw": result,
+    }), 500
+
+@app.get("/matchmaking/status")
+def matchmaking_status():
+    username = request.args.get("username")
+
+    if not username:
+        return jsonify({"error": "username is required"}), 400
+
+    user = User.query.filter_by(name=username).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    result = check_match_status(user.name)
+    return jsonify(result)
+
+
+@app.post("/matchmaking/cancel")
+def matchmaking_cancel():
+    data = request.get_json() or {}
+    username = data.get("username")
+
+    if not username:
+        return jsonify({"error": "username is required"}), 400
+
+    user = User.query.filter_by(name=username).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    result = cancel_matchmaking(user.name)
+    return jsonify(result)
+
 
 @app.route('/health', methods=['GET'])
 @app.route('/api/health', methods=['GET'])

@@ -16,6 +16,10 @@ void handle_surrender(ClientSession *session, int num_params, char *param1,
 void handle_get_history(ClientSession *session, char *param1, PGconn *db);
 void handle_get_replay(ClientSession *session, char *param1, PGconn *db);
 void handle_get_stats(ClientSession *session, char *param1, PGconn *db);
+    
+    //Register
+    void handle_register_validate(ClientSession *session, int num_params,
+                             char *param1, char *param2, char *param3, PGconn *db);
 
 // ✅ Add rematch handlers
 void handle_rematch_request(ClientSession *session, int num_params, char *param1, 
