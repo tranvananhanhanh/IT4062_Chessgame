@@ -1,6 +1,8 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -g -Iinclude -I/usr/local/Cellar/postgresql@14/14.11_1/include/postgresql@14 -pthread
-LDFLAGS = -L/usr/local/Cellar/postgresql@14/14.11_1/lib/postgresql@14 -lpq -lpthread -lm
+#CFLAGS = -Wall -Wextra -g -Iinclude -I/usr/local/Cellar/postgresql@14/14.11_1/include/postgresql@14 -pthread
+#LDFLAGS = -L/usr/local/Cellar/postgresql@14/14.11_1/lib/postgresql@14 -lpq -lpthread -lm
+CFLAGS = -Wall -Wextra -g -Iinclude -I/usr/include/postgresql -pthread
+LDFLAGS = -L/usr/lib/x86_64-linux-gnu -lpq -lpthread -lm
 
 # Directories
 SRC_DIR = src
@@ -26,7 +28,8 @@ TIMER_SRCS = $(TIMER_DIR)/timer.c
 HISTORY_SRCS = $(HISTORY_DIR)/history.c \
                $(HISTORY_DIR)/history_handlers.c
 
-PROTOCOL_SRCS = $(PROTOCOL_DIR)/protocol_handler.c
+PROTOCOL_SRCS = $(PROTOCOL_DIR)/protocol_handler.c \
+				$(PROTOCOL_DIR)/matchmaking.c
 
 SESSION_SRCS = $(SESSION_DIR)/client_session.c
 

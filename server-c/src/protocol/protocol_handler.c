@@ -1,6 +1,7 @@
 #include "protocol_handler.h"
 #include "game.h"
 #include "history.h"
+#include "matchmaking.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +14,90 @@
 extern GameManager game_manager;
 
 // ==================== COMMAND HANDLERS ====================
+
+void handle_register_validate(ClientSession *session, int num_params,
+                             char *param1, char *param2, char *param3, PGconn *db) {
+    (void)db; // not using DB in validation
+
+    // REGISTER_VALIDATE|username|password|email
+    if (num_params < 4) {
+        const char *msg = "REGISTER_ERROR|Missing username or password or email\n";
+        send(session->socket_fd, msg, strlen(msg), 0);
+        return;
+    }
+
+    const char *username = param1;
+    const char *password = param2;
+    const char *email = param3;
+
+    // Trim whitespace
+    while (*username == ' ' || *username == '\t') username++;
+    while (*password == ' ' || *password == '\t') password++;
+    while (*email == ' ' || *email == '\t') email++;
+
+    // Validate username length
+    size_t ulen = strlen(username);
+    if (ulen < 3 || ulen > 50) {
+        const char *msg = "REGISTER_ERROR|Username length must be 3-50 characters\n";
+        send(session->socket_fd, msg, strlen(msg), 0);
+        return;
+    }
+
+    // Validate username characters
+    for (size_t i = 0; i < ulen; ++i) {
+        char c = username[i];
+        if (!((c >= 'a' && c <= 'z') ||
+              (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') ||
+              c == '_' || c == '-')) {
+            const char *msg = "REGISTER_ERROR|Username contains invalid characters\n";
+            send(session->socket_fd, msg, strlen(msg), 0);
+            return;
+        }
+    }
+
+    // Validate password length
+    if (strlen(password) < 6) {
+        const char *msg = "REGISTER_ERROR|Password must be at least 6 characters\n";
+        send(session->socket_fd, msg, strlen(msg), 0);
+        return;
+    }
+
+    // Validate email
+    if (strlen(email) < 5 || strchr(email, '@') == NULL || strchr(email, '.') == NULL) {
+        const char *msg = "REGISTER_ERROR|Invalid email format\n";
+        send(session->socket_fd, msg, strlen(msg), 0);
+        return;
+    }
+
+    // EVERYTHING OK
+    const char *ok = "REGISTER_OK\n";
+    send(session->socket_fd, ok, strlen(ok), 0);
+}
+
+void handle_protocol_line(const char *line, char *out, size_t out_size) {
+    // Matchmaking commands
+    if (strncmp(line, "MMJOIN", 6) == 0) {
+        const char *payload = line + 6;
+        while (*payload == ' ') payload++;
+        handle_mmjoin(payload, out, out_size);
+        return;
+    }
+
+    if (strncmp(line, "MMSTATUS", 8) == 0) {
+        const char *payload = line + 8;
+        while (*payload == ' ') payload++;
+        handle_mmstatus(payload, out, out_size);
+        return;
+    }
+
+    if (strncmp(line, "MMCANCEL", 8) == 0) {
+        const char *payload = line + 8;
+        while (*payload == ' ') payload++;
+        handle_mmcancel(payload, out, out_size);
+        return;
+    }
+}
 
 void handle_start_match(ClientSession *session, char *param1, char *param2, 
                        char *param3, char *param4, PGconn *db) {
@@ -1145,6 +1230,11 @@ void protocol_handle_command(ClientSession *session, const char *buffer, PGconn 
     else if (strcmp(command, "GET_STATS") == 0 && num_params >= 2) {
         handle_get_stats(session, param1, db);
     }
+    // Thêm case validate đăng kí
+    else if (strcmp(command, "REGISTER_VALIDATE") == 0) {
+        handle_register_validate(session, num_params, param1, param2, param3, db);
+    }
+
     // Friendship commands
     else if (strcmp(command, "FRIEND_REQUEST") == 0) {
         handle_friend_request(session, num_params, param1, param2, db);
@@ -1193,6 +1283,36 @@ void protocol_handle_command(ClientSession *session, const char *buffer, PGconn 
     else if (strcmp(command, "REMATCH_DECLINE") == 0) {
         handle_rematch_decline(session, num_params, param1, param2, db);
     }
+    
+    // === MATCHMAKING COMMANDS ===
+    else if (strcmp(command, "MMJOIN") == 0 && num_params >= 4) {
+        // param1 = user_id, param2 = elo, param3 = time_mode
+        char payload[256];
+        snprintf(payload, sizeof(payload), "%s %s %s", param1, param2, param3);
+
+        char resp[256];
+        memset(resp, 0, sizeof(resp));
+
+        handle_mmjoin(payload, resp, sizeof(resp));
+        send(session->socket_fd, resp, strlen(resp), 0);
+    }
+    else if (strcmp(command, "MMSTATUS") == 0 && num_params >= 2) {
+        // param1 = user_id
+        char resp[256];
+        memset(resp, 0, sizeof(resp));
+
+        handle_mmstatus(param1, resp, sizeof(resp));
+        send(session->socket_fd, resp, strlen(resp), 0);
+    }
+    else if (strcmp(command, "MMCANCEL") == 0 && num_params >= 2) {
+        // param1 = user_id
+        char resp[256];
+        memset(resp, 0, sizeof(resp));
+
+        handle_mmcancel(param1, resp, sizeof(resp));
+        send(session->socket_fd, resp, strlen(resp), 0);
+    }
+    
     else {
         char error[128];
         sprintf(error, "ERROR|Unknown command: %s\n", command);

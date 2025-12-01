@@ -2,19 +2,23 @@ import socket
 import threading
 from typing import Optional
 
+GAME_SERVER_HOST = "127.0.0.1"
+GAME_SERVER_PORT = 8888
+
+
 class CSocketBridge:
     """
     Bridge class to communicate with C TCP server
     Handles persistent connection management
     """
 
-    def __init__(self, host: str = 'localhost', port: int = 8888):
+    def __init__(self, host: str = GAME_SERVER_HOST, port: int = GAME_SERVER_PORT):
         self.host = host
         self.port = port
         self.socket: Optional[socket.socket] = None
         self.connected = False
         self.lock = threading.Lock()
-        
+
         # Auto-connect on initialization
         self._connect()
 
@@ -26,30 +30,61 @@ class CSocketBridge:
                 if self.socket:
                     try:
                         self.socket.close()
-                    except:
+                    except Exception:
                         pass
-                
+
                 # Create new socket
                 self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.socket.settimeout(10.0)
                 self.socket.connect((self.host, self.port))
-                
-                # Read welcome message
-                welcome = self.socket.recv(1024).decode('utf-8').strip()
-                print(f"Connected to C Server: {welcome}")
-                
+
+                # Read welcome message (1 dòng)
+                try:
+                    welcome = self.socket.recv(1024).decode("utf-8").strip()
+                    print(f"[Bridge] Connected to C Server: {welcome}")
+                except socket.timeout:
+                    # Nếu server không gửi welcome cũng không sao
+                    print("[Bridge] Connected to C Server (no welcome message)")
+
                 self.connected = True
                 return True
-                
+
         except Exception as e:
-            print(f"Failed to connect to C server at {self.host}:{self.port}")
-            print(f"Error: {e}")
+            print(f"[Bridge] Failed to connect to C server at {self.host}:{self.port}")
+            print(f"[Bridge] Error: {e}")
             self.socket = None
             self.connected = False
             return False
 
+    def _recv_line(self) -> Optional[str]:
+        """
+        Đọc 1 dòng (kết thúc bằng '\\n') từ socket.
+        Trả về None nếu lỗi / mất kết nối.
+        """
+        if not self.socket:
+            return None
+
+        data = b""
+        try:
+            while not data.endswith(b"\n"):
+                chunk = self.socket.recv(1024)
+                if not chunk:
+                    # server đóng kết nối
+                    return None
+                data += chunk
+            return data.decode("utf-8").rstrip("\r\n")
+        except socket.timeout:
+            print("[Bridge] Timeout while reading response")
+            return None
+        except OSError as e:
+            print(f"[Bridge] Socket error while reading: {e}")
+            return None
+
     def send_command(self, command: str) -> Optional[str]:
-        """Send command to C server and get response"""
+        """
+        Gửi 1 command sang C server và nhận 1 dòng response.
+        Protocol: 'CMD payload\\n' -> 'RESPONSE...\\n'
+        """
         # Reconnect if disconnected
         if not self.connected or not self.socket:
             print("[Bridge] Not connected, attempting to reconnect...")
@@ -60,37 +95,41 @@ class CSocketBridge:
             with self.lock:
                 # Send command with newline
                 message = f"{command}\n"
-                self.socket.sendall(message.encode('utf-8'))
-                print(f"[DEBUG] Sent: {command}")
+                self.socket.sendall(message.encode("utf-8"))
+                print(f"[Bridge][DEBUG] Sent: {command}")
 
-                # Receive response
+                # Receive one line response
                 self.socket.settimeout(10.0)
-                response = self.socket.recv(8192).decode('utf-8').strip()
-                print(f"[DEBUG] Received: {response}")
-                
+                response = self._recv_line()
+
+                if response is None:
+                    print("[Bridge] No response (connection may be closed)")
+                    self.connected = False
+                    self.socket = None
+                    return None
+
+                print(f"[Bridge][DEBUG] Received: {response}")
                 return response
 
         except (BrokenPipeError, ConnectionResetError, OSError) as e:
             print(f"[Bridge] Connection broken: {e}, reconnecting...")
             self.connected = False
             self.socket = None
-            
+
             # Retry once
             if self._connect():
                 try:
-                    message = f"{command}\n"
-                    self.socket.sendall(message.encode('utf-8'))
-                    self.socket.settimeout(10.0)
-                    response = self.socket.recv(8192).decode('utf-8').strip()
-                    return response
-                except:
+                    with self.lock:
+                        message = f"{command}\n"
+                        self.socket.sendall(message.encode("utf-8"))
+                        self.socket.settimeout(10.0)
+                        response = self._recv_line()
+                        return response
+                except Exception as e2:
+                    print(f"[Bridge] Retry failed: {e2}")
                     return None
             return None
-            
-        except socket.timeout:
-            print("[Bridge] Timeout waiting for response")
-            return "ERROR|Timeout"
-            
+
         except Exception as e:
             print(f"[Bridge] Error: {e}")
             self.connected = False
@@ -103,7 +142,7 @@ class CSocketBridge:
             if self.socket:
                 try:
                     self.socket.close()
-                except:
+                except Exception:
                     pass
                 self.socket = None
                 self.connected = False
@@ -111,7 +150,8 @@ class CSocketBridge:
 
 
 # Global singleton instance
-_c_bridge_instance = None
+_c_bridge_instance: Optional[CSocketBridge] = None
+
 
 def get_c_bridge() -> CSocketBridge:
     """Get singleton instance of CSocketBridge"""
@@ -119,3 +159,15 @@ def get_c_bridge() -> CSocketBridge:
     if _c_bridge_instance is None:
         _c_bridge_instance = CSocketBridge()
     return _c_bridge_instance
+
+
+def send_request(line: str) -> Optional[str]:
+    """
+    Gửi 1 dòng lệnh sang C server và nhận 1 dòng phản hồi.
+    Dùng persistent connection thông qua CSocketBridge.
+
+    Example:
+        resp = send_request("MMJOIN user1 1500 BLITZ")
+    """
+    bridge = get_c_bridge()
+    return bridge.send_command(line)
