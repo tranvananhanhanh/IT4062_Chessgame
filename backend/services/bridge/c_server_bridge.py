@@ -25,7 +25,17 @@ class CServerBridge:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.settimeout(5.0)  # 5 second timeout
             self.sock.connect((self.host, self.port))
-            print(f"[Bridge] Connected to C server at {self.host}:{self.port}")
+            
+            # ✅ Read and discard WELCOME message from server
+            try:
+                welcome = self.sock.recv(1024).decode().strip()
+                if welcome.startswith("WELCOME"):
+                    print(f"[Bridge] Connected to C server: {welcome}")
+                else:
+                    print(f"[Bridge] Connected but no WELCOME received: {welcome}")
+            except socket.timeout:
+                print(f"[Bridge] Connected to C server at {self.host}:{self.port} (no WELCOME)")
+            
             return True
         except socket.timeout:
             print(f"[Bridge] Connection timeout to C server at {self.host}:{self.port}")
