@@ -1,4 +1,4 @@
-from services.socket_bridge import get_c_bridge
+from services.bridge import get_c_server_bridge
 import json
 from typing import Dict, Any, List, Optional
 
@@ -6,7 +6,7 @@ class HistoryService:
     """Service class for game history and statistics operations"""
 
     def __init__(self):
-        self.c_bridge = get_c_bridge()
+        self.c_bridge = get_c_server_bridge()
 
     def get_game_history(self, user_id: int) -> Dict[str, Any]:
         """

@@ -1,32 +1,18 @@
+// protocol_handler.h - Protocol command router header
 #ifndef PROTOCOL_HANDLER_H
 #define PROTOCOL_HANDLER_H
 
 #include "client_session.h"
 #include <libpq-fe.h>
 
-// Command handlers
-void handle_start_match(ClientSession *session, char *param1, char *param2, 
-                       char *param3, char *param4, PGconn *db);
-void handle_join_match(ClientSession *session, char *param1, char *param2, 
-                      char *param3, PGconn *db);
-void handle_get_match_status(ClientSession *session, char *param1, PGconn *db);
-void handle_move(ClientSession *session, int num_params, char *param1, 
-                char *param2, char *param3, char *param4, PGconn *db);
-void handle_surrender(ClientSession *session, int num_params, char *param1, 
-                     char *param2, PGconn *db);
-void handle_get_history(ClientSession *session, char *param1, PGconn *db);
-void handle_get_replay(ClientSession *session, char *param1, PGconn *db);
-void handle_get_stats(ClientSession *session, char *param1, PGconn *db);
-
-// ✅ Add rematch handlers
-void handle_rematch_request(ClientSession *session, int num_params, char *param1, 
-                           char *param2, PGconn *db);
-void handle_rematch_accept(ClientSession *session, int num_params, char *param1, 
-                          char *param2, PGconn *db);
-void handle_rematch_decline(ClientSession *session, int num_params, char *param1, 
-                           char *param2, PGconn *db);
-
-// Main protocol parser
+// Main protocol parser (only public interface)
 void protocol_handle_command(ClientSession *session, const char *buffer, PGconn *db);
+
+// Handler modules (imported by protocol_handler.c)
+// - match.h: handle_start_match, handle_join_match, handle_get_match_status, handle_move, handle_surrender
+// - friend.h: handle_friend_request, handle_friend_accept, handle_friend_decline, handle_friend_list, handle_friend_requests
+// - bot.h: handle_mode_bot, handle_bot_move
+// - control.h: handle_pause, handle_resume, handle_draw_*, handle_rematch_*
+// - history.h: handle_get_history, handle_get_replay, handle_get_stats
 
 #endif // PROTOCOL_HANDLER_H
