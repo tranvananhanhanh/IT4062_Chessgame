@@ -26,7 +26,7 @@ GameMatch* game_manager_create_match(GameManager *manager, Player white, Player 
         return NULL;
     }
     
-    // Create match in database first
+    // Create match in database first (status='waiting')
     int match_id = history_create_match(db, white.user_id, black.user_id, "pvp");
     if (match_id < 0) {
         pthread_mutex_unlock(&manager->lock);
@@ -36,13 +36,15 @@ GameMatch* game_manager_create_match(GameManager *manager, Player white, Player 
     // Allocate and initialize match
     GameMatch *match = (GameMatch*)malloc(sizeof(GameMatch));
     match->match_id = match_id;
-    match->status = GAME_PLAYING;
+    match->status = GAME_WAITING;  // ✅ Start as WAITING until opponent joins
     match->white_player = white;
     match->black_player = black;
     match->start_time = time(NULL);
     match->end_time = 0;
     match->result = RESULT_NONE;
     match->winner_id = 0;
+    match->draw_requester_id = 0;
+    match->rematch_id = 0;  // ✅ Initialize rematch_id
     
     chess_board_init(&match->board);
     pthread_mutex_init(&match->lock, NULL);
@@ -87,6 +89,8 @@ GameMatch* game_manager_create_bot_match(GameManager *manager, Player white, Pla
     match->end_time = 0;
     match->result = RESULT_NONE;
     match->winner_id = 0;
+    match->draw_requester_id = 0;
+    match->rematch_id = 0;  // ✅ Initialize rematch_id
     
     chess_board_init(&match->board);
     pthread_mutex_init(&match->lock, NULL);
@@ -165,6 +169,25 @@ void game_manager_remove_match(GameManager *manager, int match_id) {
 
 int game_match_make_move(GameMatch *match, int player_socket_fd, int player_id, const char *from, const char *to, PGconn *db) {
     pthread_mutex_lock(&match->lock);
+    
+    // ✅ CHECK GAME STATE FIRST - Game must be in PLAYING state
+    if (match->status != GAME_PLAYING) {
+        char error[100];
+        if (match->status == GAME_FINISHED) {
+            snprintf(error, sizeof(error), "ERROR|Game has already ended\n");
+        } else if (match->status == GAME_PAUSED) {
+            snprintf(error, sizeof(error), "ERROR|Game is paused\n");
+        } else if (match->status == GAME_WAITING) {
+            snprintf(error, sizeof(error), "ERROR|Waiting for opponent\n");
+        } else {
+            snprintf(error, sizeof(error), "ERROR|Invalid game state\n");
+        }
+        send_to_client(player_socket_fd, error);
+        pthread_mutex_unlock(&match->lock);
+        printf("[Move] Rejected: match %d not in PLAYING state (status=%d)\n", 
+               match->match_id, match->status);
+        return 0;
+    }
     
     // Determine which player is making the move
     Player *current_player = NULL;
@@ -260,23 +283,34 @@ int game_match_make_move(GameMatch *match, int player_socket_fd, int player_id, 
 int game_match_check_end_condition(GameMatch *match, PGconn *db) {
     PlayerColor next_player = match->board.current_turn;
     
+    printf("[DEBUG] game_match_check_end_condition: match_id=%d, current_turn=%s\n", 
+           match->match_id, (next_player == COLOR_WHITE ? "WHITE" : "BLACK"));
+    
     // Check checkmate
-    if (is_checkmate(&match->board, next_player)) {
+    int checkmate = is_checkmate(&match->board, next_player);
+    printf("[DEBUG] is_checkmate() returned: %d\n", checkmate);
+    
+    if (checkmate) {
         match->status = GAME_FINISHED;
         match->result = (next_player == COLOR_WHITE) ? RESULT_BLACK_WIN : RESULT_WHITE_WIN;
         match->winner_id = (next_player == COLOR_WHITE) ? 
                           match->black_player.user_id : match->white_player.user_id;
         match->end_time = time(NULL);
         
+        printf("[DEBUG] CHECKMATE DETECTED! Setting status=GAME_FINISHED, result=%s, winner_id=%d\n",
+               (match->result == RESULT_WHITE_WIN ? "WHITE_WIN" : "BLACK_WIN"), match->winner_id);
+        
         // Update database
         const char *result_str = (match->result == RESULT_WHITE_WIN) ? "white_win" : "black_win";
         history_update_match_result(db, match->match_id, result_str, match->winner_id);
         
-        // Update ELO
-        int winner_id = match->winner_id;
-        int loser_id = (winner_id == match->white_player.user_id) ? 
-                       match->black_player.user_id : match->white_player.user_id;
-        stats_update_elo(db, winner_id, loser_id);
+        // Update ELO (only for PvP, not bot)
+        if (match->black_player.user_id != 0) {
+            int winner_id = match->winner_id;
+            int loser_id = (winner_id == match->white_player.user_id) ? 
+                           match->black_player.user_id : match->white_player.user_id;
+            stats_update_elo(db, winner_id, loser_id);
+        }
         
         // Stop timer
         timer_manager_stop_timer(&game_manager.timer_manager, match->match_id);
@@ -287,6 +321,16 @@ int game_match_check_end_condition(GameMatch *match, PGconn *db) {
         broadcast_to_match(match, msg, -1);
         
         printf("[Match %d] CHECKMATE! Winner: %d\n", match->match_id, match->winner_id);
+        
+        // For bot match: send BOT_GAME_END if needed
+        if (match->black_player.user_id == 0) {
+            if (match->result == RESULT_WHITE_WIN) {
+                sprintf(msg, "BOT_GAME_END|white_win|winner:%d\n", match->white_player.user_id);
+            } else {
+                sprintf(msg, "BOT_GAME_END|black_win|winner:bot\n");
+            }
+            send_to_client(match->white_player.socket_fd, msg);
+        }
         
         return 1;
     }
@@ -308,6 +352,12 @@ int game_match_check_end_condition(GameMatch *match, PGconn *db) {
         
         printf("[Match %d] STALEMATE! Draw\n", match->match_id);
         
+        // For bot match: send BOT_GAME_END if needed
+        if (match->black_player.user_id == 0) {
+            sprintf(msg, "BOT_GAME_END|draw\n");
+            send_to_client(match->white_player.socket_fd, msg);
+        }
+        
         return 1;
     }
     
@@ -316,19 +366,58 @@ int game_match_check_end_condition(GameMatch *match, PGconn *db) {
         match->status = GAME_FINISHED;
         match->result = RESULT_DRAW;
         match->end_time = time(NULL);
-        
         history_update_match_result(db, match->match_id, "draw", 0);
-        
-        // Stop timer
         timer_manager_stop_timer(&game_manager.timer_manager, match->match_id);
-        
         char msg[BUFFER_SIZE];
         sprintf(msg, "GAME_END|fifty_move_rule|draw\n");
         broadcast_to_match(match, msg, -1);
-        
         printf("[Match %d] Draw by 50-move rule\n", match->match_id);
-        
+        // For bot match: send BOT_GAME_END if needed
+        if (match->black_player.user_id == 0) {
+            sprintf(msg, "BOT_GAME_END|draw\n");
+            send_to_client(match->white_player.socket_fd, msg);
+        }
         return 1;
+    }
+
+    // Check insufficient material (chỉ còn mỗi vua hoặc không đủ quân để chiếu hết)
+    int insufficient = is_insufficient_material(&match->board);
+    printf("[DEBUG] is_insufficient_material() returned: %d\n", insufficient);
+    
+    if (insufficient) {
+        match->status = GAME_FINISHED;
+        match->result = RESULT_DRAW;
+        match->end_time = time(NULL);
+        
+        printf("[DEBUG] INSUFFICIENT MATERIAL DETECTED! Updating database...\n");
+        history_update_match_result(db, match->match_id, "draw", 0);
+        
+        timer_manager_stop_timer(&game_manager.timer_manager, match->match_id);
+        char msg[BUFFER_SIZE];
+        sprintf(msg, "GAME_END|insufficient_material|draw\n");
+        broadcast_to_match(match, msg, -1);
+        printf("[Match %d] Draw by insufficient material\n", match->match_id);
+        // For bot match: send BOT_GAME_END if needed
+        if (match->black_player.user_id == 0) {
+            sprintf(msg, "BOT_GAME_END|draw\n");
+            send_to_client(match->white_player.socket_fd, msg);
+        }
+        return 1;
+    }
+    
+    // For bot match: check if black is bot and game ended
+    if (match->black_player.user_id == 0 && match->status == GAME_FINISHED) {
+        // Send bot game end response to player
+        char msg[BUFFER_SIZE];
+        if (match->result == RESULT_WHITE_WIN) {
+            sprintf(msg, "BOT_GAME_END|white_win|winner:%d\n", match->white_player.user_id);
+        } else if (match->result == RESULT_BLACK_WIN) {
+            sprintf(msg, "BOT_GAME_END|black_win|winner:bot\n");
+        } else {
+            sprintf(msg, "BOT_GAME_END|draw\n");
+        }
+        send_to_client(match->white_player.socket_fd, msg);
+        printf("[Bot Match %d] Game ended: %s\n", match->match_id, msg);
     }
     
     return 0;
@@ -429,4 +518,95 @@ void game_timeout_callback(int match_id) {
         
         pthread_mutex_unlock(&match->lock);
     }
+}
+
+// ✅ NEW: Cleanup finished matches from memory
+void game_manager_cleanup_finished_matches(GameManager *manager) {
+    pthread_mutex_lock(&manager->lock);
+    
+    time_t now = time(NULL);
+    int cleaned = 0;
+    
+    for (int i = 0; i < manager->match_count; ) {
+        GameMatch *match = manager->matches[i];
+        
+        // Remove matches that finished more than 60 seconds ago
+        if (match && match->status == GAME_FINISHED && 
+            match->end_time > 0 && (now - match->end_time) > 60) {
+            
+            printf("[Cleanup] Removing finished match %d (ended %ld seconds ago)\n", 
+                   match->match_id, now - match->end_time);
+            
+            // Stop timer
+            timer_manager_stop_timer(&manager->timer_manager, match->match_id);
+            
+            // Free match
+            pthread_mutex_destroy(&match->lock);
+            free(match);
+            
+            // Shift remaining matches
+            for (int j = i; j < manager->match_count - 1; j++) {
+                manager->matches[j] = manager->matches[j + 1];
+            }
+            manager->matches[manager->match_count - 1] = NULL;
+            manager->match_count--;
+            cleaned++;
+            
+            // Don't increment i, check the same index again
+        } else {
+            i++;
+        }
+    }
+    
+    pthread_mutex_unlock(&manager->lock);
+    
+    if (cleaned > 0) {
+        printf("[Cleanup] Cleaned %d finished matches. Active matches: %d\n", 
+               cleaned, manager->match_count);
+    }
+}
+
+// ✅ NEW: Force cleanup stale matches stuck in 'playing' state
+void game_manager_force_cleanup_stale_matches(GameManager *manager) {
+    pthread_mutex_lock(&manager->lock);
+    
+    time_t now = time(NULL);
+    int cleaned = 0;
+    
+    for (int i = 0; i < manager->match_count; ) {
+        GameMatch *match = manager->matches[i];
+        
+        // Remove matches that have been inactive for more than 30 minutes
+        if (match && match->status == GAME_PLAYING && 
+            (now - match->start_time) > 1800) {  // 30 minutes
+            
+            printf("[Force Cleanup] Removing stale match %d (started %ld seconds ago, no activity)\n", 
+                   match->match_id, now - match->start_time);
+            
+            // Stop timer
+            timer_manager_stop_timer(&manager->timer_manager, match->match_id);
+            
+            // Free match
+            pthread_mutex_destroy(&match->lock);
+            free(match);
+            
+            // Shift remaining matches
+            for (int j = i; j < manager->match_count - 1; j++) {
+                manager->matches[j] = manager->matches[j + 1];
+            }
+            manager->matches[manager->match_count - 1] = NULL;
+            manager->match_count--;
+            cleaned++;
+            
+        } else {
+            i++;
+        }
+    }
+    
+    if (cleaned > 0) {
+        printf("[Force Cleanup] Removed %d stale matches. Active matches: %d\n", 
+               cleaned, manager->match_count);
+    }
+    
+    pthread_mutex_unlock(&manager->lock);
 }

@@ -1,3 +1,4 @@
+/* ChessGameBot.css - copy style từ ChessGame.css để đồng bộ giao diện */
 .chess-game-container {
     max-width: 1200px;
     width: 100%;
@@ -242,4 +243,127 @@
     100% {
         opacity: 1;
     }
+}
+
+/* Board UI styles for ChessGameBot */
+.board-shell {
+    position: relative;
+    width: 480px;
+    height: 480px;
+    margin: 0 auto;
+}
+
+.board {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    background: #f0f3f7;
+}
+
+.board-row {
+    display: flex;
+    flex: 1;
+}
+
+.board-square {
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.2rem;
+    cursor: pointer;
+    transition: background 0.2s, box-shadow 0.2s;
+    position: relative;
+    user-select: none;
+}
+
+.board-square.light {
+    background: #f7f7f7;
+}
+
+.board-square.dark {
+    background: #b2bec3;
+}
+
+.board-square.selected {
+    box-shadow: 0 0 0 3px #2980b9 inset;
+    background: #d6eaff;
+    z-index: 2;
+}
+
+.board-square.valid-move {
+    background: linear-gradient(135deg, #a3e635 0%, #f7f7f7 100%);
+    box-shadow: 0 0 0 2px #27ae60 inset;
+}
+
+.board-square.last-move {
+    background: #ffeaa7;
+    box-shadow: 0 0 0 2px #fdcb6e inset;
+}
+
+.piece {
+    font-size: 2.2rem;
+    pointer-events: none;
+    filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.12));
+}
+
+.piece.w {
+    color: #fff;
+    text-shadow: 0 1px 2px #636e72;
+}
+
+.piece.b {
+    color: #222;
+    text-shadow: 0 1px 2px #636e72;
+}
+
+.rank-labels,
+.file-labels {
+    position: absolute;
+    font-size: 1rem;
+    color: #636e72;
+    font-weight: 600;
+    pointer-events: none;
+    z-index: 3;
+}
+
+.rank-labels.rank-left {
+    left: -28px;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    justify-content: space-between;
+}
+
+.rank-labels.rank-right {
+    right: -28px;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    justify-content: space-between;
+}
+
+.file-labels.file-bottom {
+    left: 0;
+    bottom: -28px;
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+}
+
+.file-labels.file-top {
+    left: 0;
+    top: -28px;
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
 }

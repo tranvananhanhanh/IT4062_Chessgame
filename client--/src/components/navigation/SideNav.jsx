@@ -1,3 +1,5 @@
+import ChessGameBot from '../playbot/ChessGameBot';
+
 const baseNavItems = (onHistoryClick) => [
   {
     label: 'Play',
@@ -25,7 +27,7 @@ const baseNavItems = (onHistoryClick) => [
   },
 ]
 
-const SideNav = ({ onLoginClick, onRegisterClick, onHistoryClick }) => (
+const SideNav = ({ onLoginClick, onRegisterClick, onHistoryClick, onPlayBotsClick }) => (
   <aside className="side-nav">
     <div className="nav-brand">
       <span className="brand-icon">♙</span>
@@ -49,7 +51,7 @@ const SideNav = ({ onLoginClick, onRegisterClick, onHistoryClick }) => (
               <ul>
                 {item.submenu.map((child) => (
                   <li key={child.label}>
-                    <button type="button" onClick={child.onClick}>
+                    <button type="button" onClick={child.label === 'Play Bots' ? onPlayBotsClick : child.onClick}>
                       <span aria-hidden="true">{child.icon}</span>
                       {child.label}
                     </button>
@@ -83,4 +85,8 @@ const SideNav = ({ onLoginClick, onRegisterClick, onHistoryClick }) => (
   </aside>
 )
 
-export default SideNav
+export function getBotGameComponent() {
+  return <ChessGameBot />;
+}
+
+export default SideNav;

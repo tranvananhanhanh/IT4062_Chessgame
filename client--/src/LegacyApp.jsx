@@ -3,6 +3,7 @@ import Header from './components/layout/Header'
 import SideNav from './components/navigation/SideNav'
 import LoginPanel from './components/auth/LoginPanel'
 import MatchHistory from './components/MatchHistory'
+import ChessGameBot from './components/playbot/ChessGameBot'
 import './LegacyApp.css'
 
 const PIECE_ORDER = ['rook', 'knight', 'bishop', 'queen', 'king', 'bishop', 'knight', 'rook']
@@ -212,6 +213,7 @@ function LegacyApp() {
   const [controlTab, setControlTab] = useState('newGame')
   const [, setShowBoardModal] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [activeTab, setActiveTab] = useState('play')
   const handleRegisterClick = () =>
     setGameMessage('Đăng ký tài khoản đang được chuẩn bị cho bản client tiếp theo.')
   const handleLoginClick = () => {
@@ -324,242 +326,251 @@ function LegacyApp() {
         onLoginClick={handleLoginClick}
         onRegisterClick={handleRegisterClick}
         onHistoryClick={() => setShowHistory(true)}
+        onPlayBotsClick={() => setActiveTab('bot')}
       />
       <main className="main-area">
         <Header />
-        {!gameStarted && (
+        {activeTab === 'play' && (
           <>
-            <section className="hero-section">
-              <div className="hero-text">
-                <p className="hero-label">IT4062 chess network</p>
-                <h1>Play chess. Improve your game. Have fun!</h1>
-                <p>
-                  Đăng nhập để tìm đối thủ tức thì, luyện tập các thế trận mới và theo dõi cộng đồng
-                  chơi cờ năng động nhất của học phần IT4062.
-                </p>
-                <div className="hero-actions">
-                  <button type="button" className="primary-cta" onClick={handleGetStarted}>
-                    Get Started
-                  </button>
-                  <button type="button" className="ghost-cta" onClick={handleLearnMore}>
-                    Learn More
-                  </button>
-                </div>
-              </div>
-              <div className="hero-visual" aria-hidden="true">
-                <div className="hero-floor" />
-                <div className="hero-piece hero-king" />
-                <div className="hero-piece hero-knight" />
-                <div className="hero-piece hero-pawn" />
-              </div>
-            </section>
+            {!gameStarted && (
+              <>
+                <section className="hero-section">
+                  <div className="hero-text">
+                    <p className="hero-label">IT4062 chess network</p>
+                    <h1>Play chess. Improve your game. Have fun!</h1>
+                    <p>
+                      Đăng nhập để tìm đối thủ tức thì, luyện tập các thế trận mới và theo dõi cộng
+                      đồng chơi cờ năng động nhất của học phần IT4062.
+                    </p>
+                    <div className="hero-actions">
+                      <button type="button" className="primary-cta" onClick={handleGetStarted}>
+                        Get Started
+                      </button>
+                      <button type="button" className="ghost-cta" onClick={handleLearnMore}>
+                        Learn More
+                      </button>
+                    </div>
+                  </div>
+                  <div className="hero-visual" aria-hidden="true">
+                    <div className="hero-floor" />
+                    <div className="hero-piece hero-king" />
+                    <div className="hero-piece hero-knight" />
+                    <div className="hero-piece hero-pawn" />
+                  </div>
+                </section>
 
-            <section className="prestart-panel">
-              <h2>Sẵn sàng tranh tài</h2>
-              <p>Tạo tài khoản hoặc đăng nhập để lưu lại lịch sử và thống kê nước đi của bạn.</p>
-              <p>Nhấn Get Started để mở ngay một bàn cờ thử nghiệm.</p>
-              <div className="prestart-status">{gameMessage}</div>
-            </section>
+                <section className="prestart-panel">
+                  <h2>Sẵn sàng tranh tài</h2>
+                  <p>Tạo tài khoản hoặc đăng nhập để lưu lại lịch sử và thống kê nước đi của bạn.</p>
+                  <p>Nhấn Get Started để mở ngay một bàn cờ thử nghiệm.</p>
+                  <div className="prestart-status">{gameMessage}</div>
+                </section>
+              </>
+            )}
+
+            {gameStarted && (
+              <section className="play-section">
+                <div className="board-column">
+                  <div className="play-top">
+                    <span className="play-mode">10 min Rapid</span>
+                    <div className="play-settings">
+                      <span>⚙️</span>
+                      <span className="play-timer">10:00</span>
+                    </div>
+                  </div>
+                  <div className="board-wrapper">
+                    <div className="board-shell">
+                      <div className="board">
+                        {board.map((row, rowIndex) => (
+                          <div className="board-row" key={`row-${rowIndex}`}>
+                            {row.map((piece, colIndex) => {
+                              const isDark = (rowIndex + colIndex) % 2 === 1
+                              const isSelected =
+                                selectedSquare &&
+                                selectedSquare.row === rowIndex &&
+                                selectedSquare.col === colIndex
+                              const moveHighlight = validMoves.find(
+                                (m) => m.row === rowIndex && m.col === colIndex
+                              )
+                              const isLastMoveSquare =
+                                lastMove &&
+                                ((lastMove.from.row === rowIndex &&
+                                  lastMove.from.col === colIndex) ||
+                                  (lastMove.to.row === rowIndex && lastMove.to.col === colIndex))
+                              const squareClasses = [
+                                'square',
+                                isDark ? 'square-dark' : 'square-light',
+                                isSelected ? 'square-selected' : '',
+                                moveHighlight
+                                  ? moveHighlight.capture
+                                    ? 'square-capture'
+                                    : 'square-move'
+                                  : '',
+                                isLastMoveSquare ? 'square-last' : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' ')
+                              const symbol = piece ? PIECE_SYMBOLS[piece.color][piece.type] : ''
+                              const ariaLabel = piece
+                                ? `${describePiece(piece)} tại ${toNotation(rowIndex, colIndex)}`
+                                : `Ô trống ${toNotation(rowIndex, colIndex)}`
+                              return (
+                                <button
+                                  type="button"
+                                  key={`col-${colIndex}`}
+                                  className={squareClasses}
+                                  onClick={() => handleSquareClick(rowIndex, colIndex)}
+                                  aria-label={ariaLabel}
+                                >
+                                  {symbol}
+                                  {moveHighlight && !moveHighlight.capture && (
+                                    <span className="dot" />
+                                  )}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="rank-labels rank-left">
+                        {Array.from({ length: 8 }, (_, idx) => 8 - idx).map((rank) => (
+                          <span key={`left-${rank}`}>{rank}</span>
+                        ))}
+                      </div>
+                      <div className="rank-labels rank-right">
+                        {Array.from({ length: 8 }, (_, idx) => 8 - idx).map((rank) => (
+                          <span key={`right-${rank}`}>{rank}</span>
+                        ))}
+                      </div>
+                      <div className="file-labels file-bottom">
+                        {FILES.map((file) => (
+                          <span key={`bottom-${file}`}>{file.toUpperCase()}</span>
+                        ))}
+                      </div>
+                      <div className="file-labels file-top">
+                        {FILES.map((file) => (
+                          <span key={`top-${file}`}>{file.toUpperCase()}</span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="control-column">
+                  <div className="control-tabs">
+                    {[
+                      { id: 'play', label: 'Chơi' },
+                      { id: 'newGame', label: 'Ván cờ mới' },
+                      { id: 'games', label: 'Các ván đấu' },
+                      { id: 'players', label: 'Các kỳ thủ' },
+                    ].map((tab) => (
+                      <button
+                        type="button"
+                        key={tab.id}
+                        className={controlTab === tab.id ? 'active' : ''}
+                        onClick={() => setControlTab(tab.id)}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                  {controlTab === 'newGame' && (
+                    <>
+                      <div className="control-card accent">
+                        <div>
+                          <p className="control-label">Chế độ</p>
+                          <strong>10 min (Rapid)</strong>
+                        </div>
+                        <button
+                          type="button"
+                          className="control-primary"
+                          onClick={() => resetGame('Bắt đầu ngay ván mới!')}
+                        >
+                          Start Game
+                        </button>
+                      </div>
+                      <button type="button" className="control-card">
+                        🧩 Custom Challenge
+                      </button>
+                      <button type="button" className="control-card">
+                        🤝 Play a Friend
+                      </button>
+                      <button type="button" className="control-card">
+                        🏅 Tournaments
+                      </button>
+                    </>
+                  )}
+                  {controlTab === 'play' && (
+                    <div className="move-panel">
+                      <div className="move-tabs">
+                        <button type="button" className="active">
+                          Các nước đi
+                        </button>
+                        <button type="button">Thông tin</button>
+                      </div>
+                      <div className="move-list">
+                        {history.length ? (
+                          history
+                            .slice()
+                            .reverse()
+                            .map((entry, index) => (
+                              <div className="move-row" key={`${entry}-${index}`}>
+                                <span>{index + 1}.</span>
+                                <p>{entry}</p>
+                              </div>
+                            ))
+                        ) : (
+                          <p className="muted">Chưa có nước đi nào</p>
+                        )}
+                      </div>
+                      <div className="move-controls">
+                        <button type="button" aria-label="Về đầu">
+                          ⏮
+                        </button>
+                        <button type="button" aria-label="Lùi">
+                          ⏪
+                        </button>
+                        <button type="button" aria-label="Phát">
+                          ▶
+                        </button>
+                        <button type="button" aria-label="Tiến">
+                          ⏩
+                        </button>
+                        <button type="button" aria-label="Tới cuối">
+                          ⏭
+                        </button>
+                      </div>
+                      <div className="game-summary">
+                        <p>Ván cờ đang diễn ra</p>
+                        <small>IT4062 Rapid • 10 phút</small>
+                        <button type="button" className="link-btn" onClick={() => setHistory([])}>
+                          Xóa lịch sử
+                        </button>
+                      </div>
+                      <div className="move-actions">
+                        <button type="button">½ Hòa cờ</button>
+                        <button type="button">🏳️ Đầu Hàng</button>
+                        <button type="button" onClick={() => resetGame('Bắt đầu lại trận đấu!')}>
+                          ⟳ Đấu lại
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {controlTab !== 'newGame' && controlTab !== 'play' && (
+                    <div className="control-placeholder">
+                      <p>
+                        {controlTab === 'games'
+                          ? 'Danh sách ván đấu sắp ra mắt.'
+                          : 'Tra cứu kỳ thủ sẽ xuất hiện trong bản tới.'}
+                      </p>
+                      <small>Vào tab "Ván cờ mới" để bắt đầu một trận.</small>
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
           </>
         )}
-
-        {gameStarted && (
-          <section className="play-section">
-            <div className="board-column">
-              <div className="play-top">
-                <span className="play-mode">10 min Rapid</span>
-                <div className="play-settings">
-                  <span>⚙️</span>
-                  <span className="play-timer">10:00</span>
-                </div>
-              </div>
-              <div className="board-wrapper">
-                <div className="board-shell">
-                  <div className="board">
-                    {board.map((row, rowIndex) => (
-                      <div className="board-row" key={`row-${rowIndex}`}>
-                        {row.map((piece, colIndex) => {
-                          const isDark = (rowIndex + colIndex) % 2 === 1
-                          const isSelected =
-                            selectedSquare &&
-                            selectedSquare.row === rowIndex &&
-                            selectedSquare.col === colIndex
-                          const moveHighlight = validMoves.find(
-                            (m) => m.row === rowIndex && m.col === colIndex
-                          )
-                          const isLastMoveSquare =
-                            lastMove &&
-                            ((lastMove.from.row === rowIndex && lastMove.from.col === colIndex) ||
-                              (lastMove.to.row === rowIndex && lastMove.to.col === colIndex))
-                          const squareClasses = [
-                            'square',
-                            isDark ? 'square-dark' : 'square-light',
-                            isSelected ? 'square-selected' : '',
-                            moveHighlight
-                              ? moveHighlight.capture
-                                ? 'square-capture'
-                                : 'square-move'
-                              : '',
-                            isLastMoveSquare ? 'square-last' : '',
-                          ]
-                            .filter(Boolean)
-                            .join(' ')
-                          const symbol = piece ? PIECE_SYMBOLS[piece.color][piece.type] : ''
-                          const ariaLabel = piece
-                            ? `${describePiece(piece)} tại ${toNotation(rowIndex, colIndex)}`
-                            : `Ô trống ${toNotation(rowIndex, colIndex)}`
-                          return (
-                            <button
-                              type="button"
-                              key={`col-${colIndex}`}
-                              className={squareClasses}
-                              onClick={() => handleSquareClick(rowIndex, colIndex)}
-                              aria-label={ariaLabel}
-                            >
-                              {symbol}
-                              {moveHighlight && !moveHighlight.capture && <span className="dot" />}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="rank-labels rank-left">
-                    {Array.from({ length: 8 }, (_, idx) => 8 - idx).map((rank) => (
-                      <span key={`left-${rank}`}>{rank}</span>
-                    ))}
-                  </div>
-                  <div className="rank-labels rank-right">
-                    {Array.from({ length: 8 }, (_, idx) => 8 - idx).map((rank) => (
-                      <span key={`right-${rank}`}>{rank}</span>
-                    ))}
-                  </div>
-                  <div className="file-labels file-bottom">
-                    {FILES.map((file) => (
-                      <span key={`bottom-${file}`}>{file.toUpperCase()}</span>
-                    ))}
-                  </div>
-                  <div className="file-labels file-top">
-                    {FILES.map((file) => (
-                      <span key={`top-${file}`}>{file.toUpperCase()}</span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="control-column">
-              <div className="control-tabs">
-                {[
-                  { id: 'play', label: 'Chơi' },
-                  { id: 'newGame', label: 'Ván cờ mới' },
-                  { id: 'games', label: 'Các ván đấu' },
-                  { id: 'players', label: 'Các kỳ thủ' },
-                ].map((tab) => (
-                  <button
-                    type="button"
-                    key={tab.id}
-                    className={controlTab === tab.id ? 'active' : ''}
-                    onClick={() => setControlTab(tab.id)}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-              {controlTab === 'newGame' && (
-                <>
-                  <div className="control-card accent">
-                    <div>
-                      <p className="control-label">Chế độ</p>
-                      <strong>10 min (Rapid)</strong>
-                    </div>
-                    <button
-                      type="button"
-                      className="control-primary"
-                      onClick={() => resetGame('Bắt đầu ngay ván mới!')}
-                    >
-                      Start Game
-                    </button>
-                  </div>
-                  <button type="button" className="control-card">
-                    🧩 Custom Challenge
-                  </button>
-                  <button type="button" className="control-card">
-                    🤝 Play a Friend
-                  </button>
-                  <button type="button" className="control-card">
-                    🏅 Tournaments
-                  </button>
-                </>
-              )}
-              {controlTab === 'play' && (
-                <div className="move-panel">
-                  <div className="move-tabs">
-                    <button type="button" className="active">
-                      Các nước đi
-                    </button>
-                    <button type="button">Thông tin</button>
-                  </div>
-                <div className="move-list">
-                  {history.length ? (
-                    history
-                      .slice()
-                      .reverse()
-                          .map((entry, index) => (
-                            <div className="move-row" key={`${entry}-${index}`}>
-                              <span>{index + 1}.</span>
-                              <p>{entry}</p>
-                            </div>
-                          ))
-                      ) : (
-                        <p className="muted">Chưa có nước đi nào</p>
-                      )}
-                    </div>
-                  <div className="move-controls">
-                    <button type="button" aria-label="Về đầu">
-                      ⏮
-                    </button>
-                    <button type="button" aria-label="Lùi">
-                      ⏪
-                    </button>
-                    <button type="button" aria-label="Phát">
-                      ▶
-                    </button>
-                    <button type="button" aria-label="Tiến">
-                      ⏩
-                    </button>
-                    <button type="button" aria-label="Tới cuối">
-                      ⏭
-                    </button>
-                  </div>
-                  <div className="game-summary">
-                    <p>Ván cờ đang diễn ra</p>
-                    <small>IT4062 Rapid • 10 phút</small>
-                    <button type="button" className="link-btn" onClick={() => setHistory([])}>
-                      Xóa lịch sử
-                    </button>
-                  </div>
-                  <div className="move-actions">
-                    <button type="button">½ Hòa cờ</button>
-                    <button type="button">🏳️ Đầu Hàng</button>
-                    <button type="button" onClick={() => resetGame('Bắt đầu lại trận đấu!')}>
-                      ⟳ Đấu lại
-                    </button>
-                  </div>
-                </div>
-              )}
-              {controlTab !== 'newGame' && controlTab !== 'play' && (
-                <div className="control-placeholder">
-                  <p>
-                    {controlTab === 'games'
-                      ? 'Danh sách ván đấu sắp ra mắt.'
-                      : 'Tra cứu kỳ thủ sẽ xuất hiện trong bản tới.'}
-                  </p>
-                  <small>Vào tab "Ván cờ mới" để bắt đầu một trận.</small>
-                </div>
-              )}
-            </div>
-          </section>
-        )}
+        {activeTab === 'bot' && <ChessGameBot />}
       </main>
       {showLoginPanel && (
         <div className="login-overlay">

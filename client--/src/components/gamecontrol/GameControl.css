@@ -1,0 +1,61 @@
+/* GameControl.css - styles for game control panel */
+.game-control-panel {
+    position: absolute;
+    left: 2rem;
+    bottom: 2rem;
+    background: #f8f9fa;
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    padding: 1.5rem 1rem;
+    min-width: 220px;
+    z-index: 10;
+}
+
+.game-control-panel h4 {
+    margin: 0 0 1rem 0;
+    font-size: 1.1rem;
+    color: #495057;
+    text-align: left;
+}
+
+.control-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.control-btn {
+    padding: 0.5rem 0.8rem;
+    border: none;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.95rem;
+}
+
+.control-btn:disabled {
+    background: #dfe6e9;
+    color: #636e72;
+    cursor: not-allowed;
+}
+
+.control-status {
+    margin-top: 1rem;
+    font-size: 0.95rem;
+    font-weight: 500;
+}
+
+.control-status.loading {
+    color: #2980b9;
+}
+
+.control-status.error {
+    color: #e74c3c;
+}
+
+.control-status.success {
+    color: #27ae60;
+}

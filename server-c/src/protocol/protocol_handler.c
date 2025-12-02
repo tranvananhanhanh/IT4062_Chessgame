@@ -27,11 +27,12 @@ void handle_start_match(ClientSession *session, char *param1, char *param2,
     printf("[Protocol] Creating match: %s (ID:%d) vs %s (ID:%d)\n", 
            username1, user1_id, username2, user2_id);
     
-    // When called from Flask API, both players use same connection
+    // When called from client, assign white to the creator's socket; leave black socket empty for join
     Player white = {user1_id, session->socket_fd, COLOR_WHITE, 1, ""};
     strcpy(white.username, username1);
     
-    Player black = {user2_id, session->socket_fd, COLOR_BLACK, 1, ""};
+    // Black placeholder: user_id known but socket not assigned yet
+    Player black = {user2_id, -1, COLOR_BLACK, 0, ""};
     strcpy(black.username, username2);
     
     GameMatch *match = game_manager_create_match(&game_manager, white, black, db);
@@ -45,7 +46,7 @@ void handle_start_match(ClientSession *session, char *param1, char *param2,
         sprintf(response, "MATCH_CREATED|%d|%s\n", match->match_id, match->board.fen);
         send(session->socket_fd, response, strlen(response), 0);
         
-        printf("[Protocol] Match %d created successfully\n", match->match_id);
+        printf("[Protocol] Match %d created successfully (waiting for opponent)\n", match->match_id);
     } else {
         char error[] = "ERROR|Failed to create match\n";
         send(session->socket_fd, error, strlen(error), 0);
@@ -56,7 +57,6 @@ void handle_start_match(ClientSession *session, char *param1, char *param2,
 void handle_join_match(ClientSession *session, char *param1, char *param2, 
                       char *param3, PGconn *db) {
     // JOIN_MATCH|match_id|user_id|username
-    (void)db; // Unused for now - may be needed for future validation
     
     int match_id = atoi(param1);
     int user_id = atoi(param2);
@@ -68,11 +68,51 @@ void handle_join_match(ClientSession *session, char *param1, char *param2,
     if (match != NULL) {
         pthread_mutex_lock(&match->lock);
         
-        // Assign as black player
-        match->black_player.socket_fd = session->socket_fd;
-        match->black_player.is_online = 1;
-        match->black_player.user_id = user_id;
-        strcpy(match->black_player.username, username);
+        int is_black_joining = 0;
+        
+        // ✅ Check which player this user is (white or black)
+        if (match->white_player.user_id == user_id) {
+            // Joining as white player
+            match->white_player.socket_fd = session->socket_fd;
+            match->white_player.is_online = 1;
+            strcpy(match->white_player.username, username);
+            
+            printf("[Protocol] User %d joined match %d as WHITE\n", user_id, match_id);
+        } else if (match->black_player.user_id == user_id) {
+            // Joining as black player
+            match->black_player.socket_fd = session->socket_fd;
+            match->black_player.is_online = 1;
+            strcpy(match->black_player.username, username);
+            
+            is_black_joining = 1;
+            printf("[Protocol] User %d joined match %d as BLACK\n", user_id, match_id);
+        } else {
+            // User not in this match
+            pthread_mutex_unlock(&match->lock);
+            char error[] = "ERROR|You are not a player in this match\n";
+            send(session->socket_fd, error, strlen(error), 0);
+            return;
+        }
+        
+        // ✅ If black player joins AND match is in WAITING state, update to PLAYING
+        if (is_black_joining && match->status == GAME_WAITING) {
+            // Update database
+            char update_query[512];
+            snprintf(update_query, sizeof(update_query),
+                    "UPDATE match_game SET status='playing' WHERE match_id=%d AND status='waiting'",
+                    match_id);
+            
+            PGresult *res = PQexec(db, update_query);
+            if (PQresultStatus(res) == PGRES_COMMAND_OK) {
+                // Update in-memory state
+                match->status = GAME_PLAYING;
+                printf("[Protocol] Match %d status updated: WAITING -> PLAYING (black player joined)\n", match_id);
+            } else {
+                printf("[Protocol] Warning: Failed to update match %d status in DB: %s\n", 
+                       match_id, PQerrorMessage(db));
+            }
+            PQclear(res);
+        }
         
         session->current_match = match;
         session->user_id = user_id;
@@ -84,14 +124,63 @@ void handle_join_match(ClientSession *session, char *param1, char *param2,
         sprintf(response, "MATCH_JOINED|%d|%s\n", match_id, match->board.fen);
         send(session->socket_fd, response, strlen(response), 0);
         
-        // Notify white player (if different socket)
-        if (match->white_player.socket_fd != session->socket_fd) {
-            char notify[256];
-            sprintf(notify, "OPPONENT_JOINED|%s\n", username);
-            send(match->white_player.socket_fd, notify, strlen(notify), 0);
+        // Notify opponent (if different socket and online)
+        int opponent_fd = -1;
+        if (match->white_player.user_id == user_id) {
+            opponent_fd = match->black_player.socket_fd;
+        } else {
+            opponent_fd = match->white_player.socket_fd;
         }
         
-        printf("[Protocol] User %d joined match %d\n", user_id, match_id);
+        if (opponent_fd > 0 && opponent_fd != session->socket_fd) {
+            char notify[256];
+            sprintf(notify, "OPPONENT_JOINED|%s\n", username);
+            send(opponent_fd, notify, strlen(notify), 0);
+            printf("[Protocol] Notified opponent (fd=%d) that %s joined\n", opponent_fd, username);
+        }
+        
+        printf("[Protocol] User %d joined match %d successfully\n", user_id, match_id);
+    } else {
+        char error[] = "ERROR|Match not found\n";
+        send(session->socket_fd, error, strlen(error), 0);
+    }
+}
+
+void handle_get_match_status(ClientSession *session, char *param1, PGconn *db) {
+    // GET_MATCH_STATUS|match_id
+    (void)db; // Unused for now
+    
+    int match_id = atoi(param1);
+    GameMatch *match = game_manager_find_match(&game_manager, match_id);
+    
+    if (match != NULL) {
+        pthread_mutex_lock(&match->lock);
+        
+        // Format: MATCH_STATUS|match_id|status|white_online|black_online|fen|rematch_id
+        const char *status_str;
+        switch (match->status) {
+            case GAME_WAITING: status_str = "WAITING"; break;
+            case GAME_PLAYING: status_str = "PLAYING"; break;
+            case GAME_PAUSED: status_str = "PAUSED"; break;
+            case GAME_FINISHED: status_str = "FINISHED"; break;
+            default: status_str = "UNKNOWN"; break;
+        }
+        
+        char response[512];
+        snprintf(response, sizeof(response), 
+                "MATCH_STATUS|%d|%s|%d|%d|%s|%d\n",
+                match_id,
+                status_str,
+                match->white_player.is_online,
+                match->black_player.is_online,
+                match->board.fen,
+                match->rematch_id);  // ✅ Include rematch_id
+        
+        pthread_mutex_unlock(&match->lock);
+        
+        send(session->socket_fd, response, strlen(response), 0);
+        printf("[Protocol] Sent match status for match %d: %s, rematch_id=%d\n", 
+               match_id, status_str, match->rematch_id);
     } else {
         char error[] = "ERROR|Match not found\n";
         send(session->socket_fd, error, strlen(error), 0);
@@ -112,20 +201,56 @@ void handle_move(ClientSession *session, int num_params, char *param1,
 
         GameMatch *match = game_manager_find_match(&game_manager, match_id);
         if (match != NULL) {
-            // Find player socket
+            pthread_mutex_lock(&match->lock);
+            
+            // ✅ CHECK 1: Game must be in PLAYING state
+            if (match->status != GAME_PLAYING) {
+                char error[100];
+                if (match->status == GAME_FINISHED) {
+                    snprintf(error, sizeof(error), "ERROR|Game has ended\n");
+                } else if (match->status == GAME_PAUSED) {
+                    snprintf(error, sizeof(error), "ERROR|Game is paused\n");
+                } else {
+                    snprintf(error, sizeof(error), "ERROR|Game is not in playing state\n");
+                }
+                send(session->socket_fd, error, strlen(error), 0);
+                pthread_mutex_unlock(&match->lock);
+                printf("[Move] Rejected: match %d is not in playing state (status=%d)\n", match_id, match->status);
+                return;
+            }
+            
+            // ✅ CHECK 2: Player must be in this match
             int player_socket = -1;
+            PlayerColor player_color;
             if (match->white_player.user_id == player_id) {
                 player_socket = match->white_player.socket_fd;
+                player_color = COLOR_WHITE;
             } else if (match->black_player.user_id == player_id) {
                 player_socket = match->black_player.socket_fd;
-            }
-
-            if (player_socket != -1) {
-                game_match_make_move(match, player_socket, player_id, from_square, to_square, db);
+                player_color = COLOR_BLACK;
             } else {
                 char error[] = "ERROR|Player not in match\n";
                 send(session->socket_fd, error, strlen(error), 0);
+                pthread_mutex_unlock(&match->lock);
+                printf("[Move] Rejected: player %d not in match %d\n", player_id, match_id);
+                return;
             }
+            
+            // ✅ CHECK 3: Must be player's turn
+            if (match->board.current_turn != player_color) {
+                char error[] = "ERROR|Not your turn\n";
+                send(session->socket_fd, error, strlen(error), 0);
+                pthread_mutex_unlock(&match->lock);
+                printf("[Move] Rejected: not player %d's turn in match %d (current_turn=%d)\n", 
+                       player_id, match_id, match->board.current_turn);
+                return;
+            }
+            
+            pthread_mutex_unlock(&match->lock);
+            
+            // All checks passed, make the move
+            game_match_make_move(match, player_socket, player_id, from_square, to_square, db);
+            
         } else {
             char error[] = "ERROR|Match not found\n";
             send(session->socket_fd, error, strlen(error), 0);
@@ -477,10 +602,28 @@ void handle_bot_move(ClientSession *session, int num_params, char *param1,
         
         pthread_mutex_lock(&match->lock);
         
+        // ✅ CHECK 1: Game must be in PLAYING state
         if (match->status != GAME_PLAYING) {
-            char error[] = "ERROR|Game not in playing state\n";
+            char error[100];
+            if (match->status == GAME_FINISHED) {
+                snprintf(error, sizeof(error), "ERROR|Game has ended\n");
+            } else if (match->status == GAME_PAUSED) {
+                snprintf(error, sizeof(error), "ERROR|Game is paused\n");
+            } else {
+                snprintf(error, sizeof(error), "ERROR|Game is not in playing state\n");
+            }
             send(session->socket_fd, error, strlen(error), 0);
             pthread_mutex_unlock(&match->lock);
+            printf("[Bot Move] Rejected: match %d status=%d\n", match_id, match->status);
+            return;
+        }
+        
+        // ✅ CHECK 2: Must be white's turn (player's turn)
+        if (match->board.current_turn != COLOR_WHITE) {
+            char error[] = "ERROR|Not your turn (bot is thinking)\n";
+            send(session->socket_fd, error, strlen(error), 0);
+            pthread_mutex_unlock(&match->lock);
+            printf("[Bot Move] Rejected: not white's turn in match %d\n", match_id);
             return;
         }
         
@@ -514,21 +657,104 @@ void handle_bot_move(ClientSession *session, int num_params, char *param1,
         char *fen_after_player = fen_combo;
         char *fen_after_bot = sep + 1;
         
-        // Update board to final state (after bot move)
-        strcpy(match->board.fen, fen_after_bot);
+        // ✅ EXECUTE PLAYER MOVE ON BOARD (to update board state, not just FEN string)
+        Move player_move_struct;
+        notation_to_coords(player_move, &player_move_struct.from_row, &player_move_struct.from_col);
+        notation_to_coords(player_move + 2, &player_move_struct.to_row, &player_move_struct.to_col);
+        player_move_struct.piece = match->board.board[player_move_struct.from_row][player_move_struct.from_col];
+        player_move_struct.captured_piece = match->board.board[player_move_struct.to_row][player_move_struct.to_col];
+        player_move_struct.is_castling = 0;
+        player_move_struct.is_en_passant = 0;
+        player_move_struct.is_promotion = 0;
+        player_move_struct.promotion_piece = 0;
+        execute_move(&match->board, &player_move_struct);
+        
+        // ✅ EXECUTE BOT MOVE ON BOARD (to update board state)
+        // Special case: if bot returns NOMOVE, it means bot has no legal moves (checkmate or stalemate)
+        if (strcmp(bot_move, "NOMOVE") != 0 && strcmp(bot_move, "NONE") != 0) {
+            Move bot_move_struct;
+            notation_to_coords(bot_move, &bot_move_struct.from_row, &bot_move_struct.from_col);
+            notation_to_coords(bot_move + 2, &bot_move_struct.to_row, &bot_move_struct.to_col);
+            bot_move_struct.piece = match->board.board[bot_move_struct.from_row][bot_move_struct.from_col];
+            bot_move_struct.captured_piece = match->board.board[bot_move_struct.to_row][bot_move_struct.to_col];
+            bot_move_struct.is_castling = 0;
+            bot_move_struct.is_en_passant = 0;
+            bot_move_struct.is_promotion = 0;
+            bot_move_struct.promotion_piece = 0;
+            execute_move(&match->board, &bot_move_struct);
+            
+            // Update FEN string to final state after bot move
+            strcpy(match->board.fen, fen_after_bot);
+        } else {
+            // Bot has no moves - update FEN to after player move only
+            strcpy(match->board.fen, fen_after_player);
+            printf("[Bot] Bot returned NOMOVE - checking if checkmate or stalemate\n");
+            
+            // ✅ Manually check if this is checkmate or stalemate
+            if (is_king_in_check(&match->board, COLOR_BLACK)) {
+                // Black is in check and has no moves = CHECKMATE
+                printf("[Bot] Black is in checkmate! White wins!\n");
+                match->status = GAME_FINISHED;
+                match->result = RESULT_WHITE_WIN;
+                match->winner_id = match->white_player.user_id;
+                match->end_time = time(NULL);
+                
+                history_update_match_result(db, match->match_id, "white_win", match->winner_id);
+                timer_manager_stop_timer(&game_manager.timer_manager, match->match_id);
+                
+                char msg[BUFFER_SIZE];
+                sprintf(msg, "GAME_END|checkmate|winner:%d\n", match->winner_id);
+                broadcast_to_match(match, msg, -1);
+                
+                // For bot match: send BOT_GAME_END
+                sprintf(msg, "BOT_GAME_END|white_win|winner:%d\n", match->white_player.user_id);
+                send_to_client(match->white_player.socket_fd, msg);
+                
+            } else {
+                // Black is NOT in check but has no moves = STALEMATE
+                printf("[Bot] Stalemate! Draw!\n");
+                match->status = GAME_FINISHED;
+                match->result = RESULT_DRAW;
+                match->end_time = time(NULL);
+                
+                history_update_match_result(db, match->match_id, "draw", 0);
+                timer_manager_stop_timer(&game_manager.timer_manager, match->match_id);
+                
+                char msg[BUFFER_SIZE];
+                sprintf(msg, "GAME_END|stalemate|draw\n");
+                broadcast_to_match(match, msg, -1);
+                
+                // For bot match: send BOT_GAME_END
+                sprintf(msg, "BOT_GAME_END|draw\n");
+                send_to_client(match->white_player.socket_fd, msg);
+            }
+        }
         
         // Save both moves to database
-        // Save player move
         history_save_move(db, match_id, session->user_id, player_move, fen_after_player);
-        
-        // Save bot move (user_id = NULL for bot)
         if (strcmp(bot_move, "NONE") != 0) {
             history_save_bot_move(db, match_id, bot_move, fen_after_bot);
         }
         
-        // Check game end condition
-        // TODO: Implement proper checkmate/stalemate detection
+        // ✅ CHECK GAME END CONDITION AFTER BOT MOVE (now board state is updated!)
+        game_match_check_end_condition(match, db);
+        
+        // Determine game status for response
         char status[32] = "IN_GAME";
+        printf("[DEBUG] After game_match_check_end_condition: match->status=%d (0=WAITING,1=PLAYING,2=FINISHED)\n", match->status);
+        printf("[DEBUG] match->result=%d (0=NONE,1=WHITE_WIN,2=BLACK_WIN,3=DRAW)\n", match->result);
+        
+        if (match->status == GAME_FINISHED) {
+            if (match->result == RESULT_WHITE_WIN) {
+                strcpy(status, "WHITE_WIN");
+            } else if (match->result == RESULT_BLACK_WIN) {
+                strcpy(status, "BLACK_WIN");
+            } else if (match->result == RESULT_DRAW) {
+                strcpy(status, "DRAW");
+            }
+        }
+        
+        printf("[DEBUG] Status string being sent: '%s'\n", status);
         
         // Build response: BOT_MOVE_RESULT|fen_after_player|bot_move|fen_after_bot|status
         char response[2048];
@@ -538,7 +764,8 @@ void handle_bot_move(ClientSession *session, int num_params, char *param1,
         
         send(session->socket_fd, response, strlen(response), 0);
         
-        printf("[Bot] Move processed: player=%s, bot=%s\n", player_move, bot_move);
+        printf("[Bot] Move processed: player=%s, bot=%s, status=%s\n", 
+               player_move, bot_move, status);
         
         free(fen_combo);
         pthread_mutex_unlock(&match->lock);
@@ -561,6 +788,9 @@ void handle_bot_move(ClientSession *session, int num_params, char *param1,
             if (sep) {
                 *sep = '\0';
                 strcpy(session->current_match->board.fen, sep + 1);
+                
+                // ✅ CHECK GAME END CONDITION AFTER BOT MOVE
+                game_match_check_end_condition(session->current_match, db);
                 
                 char response[512];
                 snprintf(response, sizeof(response),
@@ -973,7 +1203,22 @@ void handle_rematch_request(ClientSession *session, int num_params, char *param1
                         char response[] = "REMATCH_REQUESTED\n";
                         send(session->socket_fd, response, strlen(response), 0);
                         
-                        // Notify opponent (need to implement opponent lookup)
+                        // ✅ Notify opponent about rematch request
+                        GameMatch *match = game_manager_find_match(&game_manager, match_id);
+                        if (match != NULL) {
+                            int opponent_fd = -1;
+                            if (match->white_player.user_id == player_id) {
+                                opponent_fd = match->black_player.socket_fd;
+                            } else if (match->black_player.user_id == player_id) {
+                                opponent_fd = match->white_player.socket_fd;
+                            }
+                            
+                            if (opponent_fd > 0 && opponent_fd != session->socket_fd) {
+                                char notify[] = "OPPONENT_REMATCH_REQUEST\n";
+                                send(opponent_fd, notify, strlen(notify), 0);
+                            }
+                        }
+                        
                         printf("[Control] Player %d requested rematch in match %d\n", 
                                player_id, match_id);
                     } else {
@@ -1005,6 +1250,8 @@ void handle_rematch_accept(ClientSession *session, int num_params, char *param1,
         int match_id = atoi(param1);
         int player_id = atoi(param2);
         
+        printf("[Rematch] Processing REMATCH_ACCEPT for match %d by player %d\n", match_id, player_id);
+        
         // ✅ Check if there's a pending rematch request (NOT from this player)
         char check_query[512];
         snprintf(check_query, sizeof(check_query),
@@ -1029,10 +1276,10 @@ void handle_rematch_accept(ClientSession *session, int num_params, char *param1,
                 int player1_id = atoi(PQgetvalue(players_res, 0, 0)); // white
                 int player2_id = atoi(PQgetvalue(players_res, 1, 0)); // black
                 
-                // Create new match (swap colors)
+                // Create new match (swap colors) with status='playing'
                 char create_match_query[512];
                 snprintf(create_match_query, sizeof(create_match_query),
-                        "INSERT INTO match_game (type, status) VALUES ('pvp', 'waiting') RETURNING match_id");
+                        "INSERT INTO match_game (type, status, starttime) VALUES ('pvp', 'playing', NOW()) RETURNING match_id");
                 
                 PGresult *new_match_res = PQexec(db, create_match_query);
                 
@@ -1057,12 +1304,87 @@ void handle_rematch_accept(ClientSession *session, int num_params, char *param1,
                                 match_id);
                         PQexec(db, clear_query);
                         
-                        // Send response with new match ID
-                        char response[256];
-                        snprintf(response, sizeof(response), "REMATCH_ACCEPTED|%d\n", new_match_id);
-                        send(session->socket_fd, response, strlen(response), 0);
-                        
-                        printf("[Control] Rematch accepted - New match %d created\n", new_match_id);
+                        // ✅ Create GameMatch object in memory with swapped colors (WITHOUT creating DB record)
+                        GameMatch *old_match = game_manager_find_match(&game_manager, match_id);
+                        if (old_match != NULL) {
+                            // Swap player info and colors
+                            Player new_white = old_match->black_player;
+                            new_white.color = COLOR_WHITE;
+                            new_white.socket_fd = -1;  // Will be set when players JOIN
+                            new_white.is_online = 0;
+                            
+                            Player new_black = old_match->white_player;
+                            new_black.color = COLOR_BLACK;
+                            new_black.socket_fd = -1;  // Will be set when players JOIN
+                            new_black.is_online = 0;
+                            
+                            // ✅ Manually allocate and initialize match (don't call game_manager_create_match - it creates DB record)
+                            pthread_mutex_lock(&game_manager.lock);
+                            
+                            if (game_manager.match_count < MAX_MATCHES) {
+                                GameMatch *new_match = (GameMatch*)malloc(sizeof(GameMatch));
+                                new_match->match_id = new_match_id;  // Use ID from database
+                                new_match->status = GAME_PLAYING;
+                                new_match->white_player = new_white;
+                                new_match->black_player = new_black;
+                                new_match->start_time = time(NULL);
+                                new_match->end_time = 0;
+                                new_match->result = RESULT_NONE;
+                                new_match->winner_id = 0;
+                                new_match->draw_requester_id = 0;
+                                new_match->rematch_id = 0;
+                                
+                                chess_board_init(&new_match->board);
+                                pthread_mutex_init(&new_match->lock, NULL);
+                                
+                                // Add to manager
+                                game_manager.matches[game_manager.match_count] = new_match;
+                                game_manager.match_count++;
+                                
+                                // Create timer
+                                timer_manager_create_timer(&game_manager.timer_manager, new_match_id, 30, game_timeout_callback);
+                                
+                                pthread_mutex_unlock(&game_manager.lock);
+                                
+                                // ✅ Store rematch_id in old match so polling can detect it
+                                pthread_mutex_lock(&old_match->lock);
+                                old_match->rematch_id = new_match_id;
+                                pthread_mutex_unlock(&old_match->lock);
+                                
+                                printf("[Control] New match %d created in memory (white=%d, black=%d)\n", 
+                                       new_match_id, new_white.user_id, new_black.user_id);
+                                printf("[Control] Stored rematch_id=%d in old match %d\n", 
+                                       new_match_id, match_id);
+                                
+                                // Send response with new match ID to acceptor
+                                char response[256];
+                                snprintf(response, sizeof(response), "REMATCH_ACCEPTED|%d\n", new_match_id);
+                                send(session->socket_fd, response, strlen(response), 0);
+                                
+                                // ✅ Notify opponent (requester) about new match
+                                int opponent_fd = -1;
+                                if (old_match->white_player.user_id == player_id) {
+                                    opponent_fd = old_match->black_player.socket_fd;
+                                } else if (old_match->black_player.user_id == player_id) {
+                                    opponent_fd = old_match->white_player.socket_fd;
+                                }
+                                
+                                if (opponent_fd > 0 && opponent_fd != session->socket_fd) {
+                                    char notify[256];
+                                    snprintf(notify, sizeof(notify), "REMATCH_ACCEPTED|%d\n", new_match_id);
+                                    send(opponent_fd, notify, strlen(notify), 0);
+                                    printf("[Control] Notified opponent (fd=%d) about new match %d\n", 
+                                           opponent_fd, new_match_id);
+                                }
+                            } else {
+                                pthread_mutex_unlock(&game_manager.lock);
+                                char error[] = "ERROR|Maximum matches reached\n";
+                                send(session->socket_fd, error, strlen(error), 0);
+                            }
+                        } else {
+                            char error[] = "ERROR|Old match not found in memory\n";
+                            send(session->socket_fd, error, strlen(error), 0);
+                        }
                     }
                     PQclear(insert_res);
                 }
@@ -1129,6 +1451,9 @@ void protocol_handle_command(ClientSession *session, const char *buffer, PGconn 
     }
     else if (strcmp(command, "JOIN_MATCH") == 0 && num_params >= 4) {
         handle_join_match(session, param1, param2, param3, db);
+    }
+    else if (strcmp(command, "GET_MATCH_STATUS") == 0 && num_params >= 2) {
+        handle_get_match_status(session, param1, db);
     }
     else if (strcmp(command, "MOVE") == 0) {
         handle_move(session, num_params, param1, param2, param3, param4, db);

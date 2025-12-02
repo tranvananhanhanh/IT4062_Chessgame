@@ -1,6 +1,79 @@
 from typing import Dict, Any
 from interfaces.igame_service import IGameService
 from services.socket_bridge import get_c_bridge
+import socket
+import threading
+
+
+class CServerBridge:
+    def __init__(self, host='localhost', port=8888):
+        self.host = host
+        self.port = port
+        self.sock = None
+        self.lock = threading.Lock()
+        
+    def connect(self):
+        """Establish connection to C server"""
+        try:
+            if self.sock:
+                try:
+                    self.sock.close()
+                except:
+                    pass
+            
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            # ✅ Add socket timeout to prevent hanging
+            self.sock.settimeout(5.0)  # 5 second timeout
+            self.sock.connect((self.host, self.port))
+            print(f"[Bridge] Connected to C server at {self.host}:{self.port}")
+            return True
+        except socket.timeout:
+            print(f"[Bridge] Connection timeout to C server at {self.host}:{self.port}")
+            return False
+        except Exception as e:
+            print(f"Failed to connect to C server at {self.host}:{self.port}")
+            print(f"Error: {e}")
+            return False
+    
+    def send_command(self, command):
+        """Send command to C server and get response"""
+        with self.lock:
+            try:
+                if not self.sock:
+                    if not self.connect():
+                        return None
+                
+                # Send command
+                print(f"[DEBUG] Sent: {command.strip()}")
+                self.sock.sendall((command + '\n').encode())
+                
+                # ✅ Receive response with timeout
+                try:
+                    response = self.sock.recv(4096).decode().strip()
+                    print(f"[DEBUG] Received: {response}")
+                    return response
+                except socket.timeout:
+                    print("[Bridge] Timeout waiting for response from C server")
+                    # Try to reconnect for next time
+                    self.connect()
+                    return None
+                
+            except (BrokenPipeError, ConnectionResetError) as e:
+                print(f"[Bridge] Connection broken: {e}, reconnecting...")
+                if self.connect():
+                    # Retry once
+                    try:
+                        self.sock.sendall((command + '\n').encode())
+                        response = self.sock.recv(4096).decode().strip()
+                        return response
+                    except:
+                        return None
+                return None
+            except Exception as e:
+                print(f"[Bridge] Error sending command: {e}")
+                import traceback
+                traceback.print_exc()
+                return None
 
 
 class GameService(IGameService):
@@ -109,6 +182,86 @@ class GameService(IGameService):
                 return {
                     "success": False,
                     "error": response or "Failed to join game"
+                }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def get_match_status(self, match_id: int) -> Dict[str, Any]:
+        """
+        Get current status of a match
+        Returns: {"success": bool, "match_id": int, "status": str, "white_online": bool, "black_online": bool, "current_fen": str, "new_match_id": int (optional)}
+        """
+        try:
+            command = f"GET_MATCH_STATUS|{match_id}"
+            response = self.c_bridge.send_command(command)
+
+            if response and response.startswith("MATCH_STATUS|"):
+                # Format: MATCH_STATUS|match_id|status|white_online|black_online|fen|rematch_id
+                parts = response.split("|")
+                result = {
+                    "success": True,
+                    "match_id": int(parts[1]),
+                    "status": parts[2],
+                    "white_online": parts[3] == "1",
+                    "black_online": parts[4] == "1",
+                    "current_fen": parts[5]
+                }
+                
+                # ✅ Parse rematch_id from C server response (if available)
+                if len(parts) > 6:
+                    rematch_id = int(parts[6])
+                    if rematch_id > 0:
+                        result["new_match_id"] = rematch_id
+                        print(f"[DEBUG] Rematch detected: new_match_id={rematch_id}")
+                
+                # ✅ Fallback: Check database if C server didn't provide rematch_id
+                # Query database to find a newer match created after this one
+                try:
+                    import psycopg2
+                    conn = psycopg2.connect(
+                        host="localhost",
+                        database="chess_db",
+                        user="postgres",
+                        password="123"
+                    )
+                    cur = conn.cursor()
+                    
+                    # Find newer match with same players
+                    cur.execute("""
+                        SELECT m2.match_id 
+                        FROM match_game m1
+                        JOIN match_player mp1_w ON m1.match_id = mp1_w.match_id AND mp1_w.color = 'white'
+                        JOIN match_player mp1_b ON m1.match_id = mp1_b.match_id AND mp1_b.color = 'black'
+                        JOIN match_game m2 ON m2.match_id > m1.match_id AND m2.type = 'pvp'
+                        JOIN match_player mp2_w ON m2.match_id = mp2_w.match_id AND mp2_w.color = 'white'
+                        JOIN match_player mp2_b ON m2.match_id = mp2_b.match_id AND mp2_b.color = 'black'
+                        WHERE m1.match_id = %s
+                        AND (
+                            (mp2_w.user_id = mp1_w.user_id AND mp2_b.user_id = mp1_b.user_id)
+                            OR (mp2_w.user_id = mp1_b.user_id AND mp2_b.user_id = mp1_w.user_id)
+                        )
+                        ORDER BY m2.match_id DESC
+                        LIMIT 1
+                    """, (match_id,))
+                    
+                    row = cur.fetchone()
+                    if row:
+                        result["new_match_id"] = row[0]
+                    
+                    cur.close()
+                    conn.close()
+                except Exception as db_err:
+                    print(f"[WARNING] Could not check for rematch: {db_err}")
+                
+                return result
+            else:
+                return {
+                    "success": False,
+                    "error": response or "Match not found"
                 }
 
         except Exception as e:
@@ -313,6 +466,21 @@ class GameService(IGameService):
                             "fen_after_bot": fen_after_bot,
                             "status": status,
                             "message": f"Move executed: {move}, Bot responded: {bot_move}"
+                        }
+                # Handle GAME_END response: GAME_END|reason|result
+                elif response.startswith("GAME_END"):
+                    parts = response.split('|')
+                    if len(parts) >= 3:
+                        reason = parts[1]  # e.g., "insufficient_material", "checkmate", "stalemate"
+                        result = parts[2]  # e.g., "draw", "white", "black"
+                        
+                        return {
+                            "success": True,
+                            "game_ended": True,
+                            "reason": reason,
+                            "result": result,
+                            "status": result.upper() if result != "draw" else "DRAW",
+                            "message": f"Game ended: {reason} - {result}"
                         }
                 elif response.startswith("ERROR"):
                     error_msg = response.split('|', 1)[1] if '|' in response else "Unknown error"
