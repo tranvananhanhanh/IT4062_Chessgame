@@ -15,8 +15,8 @@ int db_create_user(PGconn *conn, const char *username, const char *password) {
     PQescapeStringConn(conn, escaped_password, password, strlen(password), NULL);
     
     snprintf(query, sizeof(query),
-        "INSERT INTO users (username, password, elo_point) "
-        "VALUES ('%s', '%s', 1200) RETURNING user_id",
+        "INSERT INTO users (name, password_hash, elo_point) "
+        "VALUES ('%s', '%s', 0) RETURNING user_id",
         escaped_username, escaped_password);
     
     PGresult *res = PQexec(conn, query);
@@ -45,7 +45,7 @@ int db_verify_user(PGconn *conn, const char *username, const char *password) {
     PQescapeStringConn(conn, escaped_password, password, strlen(password), NULL);
     
     snprintf(query, sizeof(query),
-        "SELECT user_id FROM users WHERE username = '%s' AND password = '%s'",
+        "SELECT user_id FROM users WHERE name = '%s' AND password_hash = '%s'",
         escaped_username, escaped_password);
     
     PGresult *res = PQexec(conn, query);
@@ -69,7 +69,7 @@ int db_get_user_info(PGconn *conn, int user_id, char *output, int output_size) {
     
     char query[1024];
     sprintf(query,
-        "SELECT username, elo_point FROM users WHERE user_id = %d",
+        "SELECT name, elo_point FROM users WHERE user_id = %d",
         user_id);
     
     PGresult *res = PQexec(conn, query);

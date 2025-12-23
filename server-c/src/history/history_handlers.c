@@ -1,5 +1,6 @@
 #include "history.h"
 #include "game.h"
+#include "elo_service.h"
 #include <sys/socket.h>
 
 // Format history response as JSON for Flask backend
@@ -151,4 +152,38 @@ void handle_stats_request(PGconn *conn, int client_fd, int user_id) {
     
     printf("[Stats] Sent statistics to user %d: %d games, %.1f%% win rate\n",
            user_id, stats.total_games, stats.win_rate);
+}
+
+// Handle leaderboard request
+void handle_leaderboard_request(PGconn *conn, int client_fd, int limit) {
+    printf("[Leaderboard] Requested top %d players\n", limit);
+    
+    char response[BUFFER_SIZE * 4];
+    
+    if (!elo_get_leaderboard(conn, response, sizeof(response), limit)) {
+        char error_msg[] = "ERROR|Failed to retrieve leaderboard\n";
+        send(client_fd, error_msg, strlen(error_msg), 0);
+        return;
+    }
+    
+    send(client_fd, response, strlen(response), 0);
+    
+    printf("[Leaderboard] Sent leaderboard to client\n");
+}
+
+// Handle ELO history request
+void handle_elo_history_request(PGconn *conn, int client_fd, int user_id) {
+    printf("[ELO History] User %d requested ELO history\n", user_id);
+    
+    char response[BUFFER_SIZE * 2];
+    
+    if (!elo_get_history(conn, user_id, response, sizeof(response))) {
+        char error_msg[] = "ERROR|Failed to retrieve ELO history\n";
+        send(client_fd, error_msg, strlen(error_msg), 0);
+        return;
+    }
+    
+    send(client_fd, response, strlen(response), 0);
+    
+    printf("[ELO History] Sent ELO history to user %d\n", user_id);
 }

@@ -1,6 +1,7 @@
 #include "history.h"
 #include "database.h"
 #include "game.h"
+#include "elo_service.h"
 #include <string.h>
 
 // These are wrapper functions that call the database layer
@@ -210,28 +211,36 @@ int stats_get_player_stats(PGconn *conn, int user_id, PlayerStats *stats) {
     return 1;
 }
 
-// Update ELO ratings (simple version)
+// Update ELO ratings using proper ELO calculation
 int stats_update_elo(PGconn *conn, int winner_id, int loser_id) {
     if (!db_check_connection(conn)) return 0;
     
-    // Simple ELO update: winner +30, loser -30
-    char query[512];
-    sprintf(query,
-        "UPDATE users SET elo_point = elo_point + 30 WHERE user_id = %d; "
-        "UPDATE users SET elo_point = GREATEST(elo_point - 30, 0) WHERE user_id = %d;",
-        winner_id, loser_id);
+    EloChange winner_change, loser_change;
     
-    PGresult *res = PQexec(conn, query);
+    int result = elo_update_ratings(conn, winner_id, loser_id, &winner_change, &loser_change);
     
-    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
-        fprintf(stderr, "[DB] Update ELO failed: %s\n", PQerrorMessage(conn));
-        PQclear(res);
-        return 0;
+    if (result) {
+        printf("[DB] Updated ELO: winner %d (%d -> %d, %+d), loser %d (%d -> %d, %+d)\n", 
+               winner_id, winner_change.old_elo, winner_change.new_elo, winner_change.elo_change,
+               loser_id, loser_change.old_elo, loser_change.new_elo, loser_change.elo_change);
     }
     
-    PQclear(res);
+    return result;
+}
+
+// Update ELO for draw games
+int stats_update_elo_draw(PGconn *conn, int player1_id, int player2_id) {
+    if (!db_check_connection(conn)) return 0;
     
-    printf("[DB] Updated ELO: winner %d (+30), loser %d (-30)\n", winner_id, loser_id);
+    EloChange p1_change, p2_change;
     
-    return 1;
+    int result = elo_update_draw(conn, player1_id, player2_id, &p1_change, &p2_change);
+    
+    if (result) {
+        printf("[DB] Updated ELO for draw: player %d (%d -> %d, %+d), player %d (%d -> %d, %+d)\n", 
+               player1_id, p1_change.old_elo, p1_change.new_elo, p1_change.elo_change,
+               player2_id, p2_change.old_elo, p2_change.new_elo, p2_change.elo_change);
+    }
+    
+    return result;
 }

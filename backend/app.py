@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from services.game_service import get_game_service
 from services.history_service import get_history_service
+from services.login_service import get_login_service
+from services.elo_service import get_elo_service
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for React frontend
@@ -9,6 +11,8 @@ CORS(app)  # Enable CORS for React frontend
 # Initialize services
 game_service = get_game_service()
 history_service = get_history_service()
+login_service = get_login_service()
+elo_service = get_elo_service()
 
 @app.route('/health', methods=['GET'])
 @app.route('/api/health', methods=['GET'])
@@ -111,7 +115,8 @@ def surrender_game():
         if result["success"]:
             return jsonify(result)
         else:
-            return jsonify({"error": result["error"]}), 500
+            status = 404 if result.get("error") == "Match not found" else 400
+            return jsonify({"error": result["error"]}), status
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -246,7 +251,69 @@ def get_player_stats(user_id):
             return jsonify({"error": result["error"], "stats": {}}), 500
 
     except Exception as e:
-        return jsonify({"error": str(e), "stats": {}}), 500
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/leaderboard', methods=['GET'])
+def get_leaderboard():
+    """
+    Get ELO leaderboard (top players)
+    Query params: limit (default 20)
+    """
+    try:
+        limit = request.args.get('limit', 20, type=int)
+        if limit < 1 or limit > 100:
+            limit = 20
+
+        result = elo_service.get_leaderboard(limit)
+
+        if result["success"]:
+            return jsonify(result)
+        else:
+            return jsonify({"error": result["error"], "leaderboard": []}), 500
+
+    except Exception as e:
+        return jsonify({"error": str(e), "leaderboard": []}), 500
+
+@app.route('/api/elo/history/<int:user_id>', methods=['GET'])
+def get_elo_history(user_id):
+    """
+    Get ELO history for a user
+    Returns list of ELO changes over time
+    """
+    try:
+        result = elo_service.get_elo_history(user_id)
+
+        if result["success"]:
+            return jsonify(result)
+        else:
+            return jsonify({"error": result["error"], "elo_history": []}), 500
+
+    except Exception as e:
+        return jsonify({"error": str(e), "elo_history": []}), 500
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    """
+    Authenticate user credentials via C server
+    Expected JSON: {"username": "alice", "password": "secret"}
+    """
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+
+        if not username or not password:
+            return jsonify({"error": "Missing username or password"}), 400
+
+        result = login_service.login(username, password)
+
+        if result.get("success"):
+            return jsonify(result)
+        else:
+            return jsonify({"error": result.get("error", "Login failed")}), 401
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5002)

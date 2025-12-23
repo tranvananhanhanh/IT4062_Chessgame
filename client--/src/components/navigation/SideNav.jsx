@@ -25,7 +25,7 @@ const baseNavItems = (onHistoryClick) => [
   },
 ]
 
-const SideNav = ({ onLoginClick, onRegisterClick, onHistoryClick }) => (
+const SideNav = ({ user, onLoginClick, onRegisterClick, onHistoryClick, onLogout }) => (
   <aside className="side-nav">
     <div className="nav-brand">
       <span className="brand-icon">♙</span>
@@ -68,12 +68,29 @@ const SideNav = ({ onLoginClick, onRegisterClick, onHistoryClick }) => (
     </div>
 
     <div className="nav-cta">
-      <button type="button" className="sign-up-btn" onClick={onRegisterClick}>
-        Sign Up
-      </button>
-      <button type="button" className="log-in-btn" onClick={onLoginClick}>
-        Log In
-      </button>
+      {user ? (
+        <div className="nav-profile">
+          <div className="profile-avatar" aria-hidden="true">
+            {(user.username || '?').charAt(0).toUpperCase()}
+          </div>
+          <div className="profile-meta">
+            <strong>{user.username}</strong>
+            <p>ELO {user.elo ?? '-'}</p>
+          </div>
+          <button type="button" className="profile-action" onClick={onLogout}>
+            Sign out
+          </button>
+        </div>
+      ) : (
+        <>
+          <button type="button" className="sign-up-btn" onClick={onRegisterClick}>
+            Sign Up
+          </button>
+          <button type="button" className="log-in-btn" onClick={onLoginClick}>
+            Log In
+          </button>
+        </>
+      )}
     </div>
 
     <div className="nav-footer">

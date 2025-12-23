@@ -215,8 +215,37 @@
   color: #ff9d9d;
 }
 
+.move-actions .leave-btn {
+  color: #ff9d9d;
+  border-color: rgba(255, 99, 99, 0.3);
+  background: rgba(255, 99, 99, 0.08);
+}
+
 .move-actions button:last-child {
   color: #9fe486;
+}
+
+.match-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.5rem;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.match-meta input {
+  width: 90px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #f5f5f5;
+  border-radius: 0.4rem;
+  padding: 0.2rem 0.4rem;
+}
+
+.match-meta-user {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 0.9rem;
 }
 
 .link-btn {

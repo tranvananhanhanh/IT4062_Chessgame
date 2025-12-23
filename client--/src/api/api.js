@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5002/api';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -9,6 +9,33 @@ const api = axios.create({
         'Content-Type': 'application/json',
     },
 });
+
+export const authAPI = {
+    login: async (username, password) => {
+        try {
+            const response = await api.post('/auth/login', { username, password });
+            return response.data;
+        } catch (error) {
+            if (error.response?.data) {
+                return { success: false, ...error.response.data, status: error.response.status };
+            }
+            console.error('Error logging in:', error);
+            throw error;
+        }
+    },
+    register: async (username, password) => {
+        try {
+            const response = await api.post('/auth/register', { username, password });
+            return response.data;
+        } catch (error) {
+            if (error.response?.data) {
+                return { success: false, ...error.response.data, status: error.response.status };
+            }
+            console.error('Error registering:', error);
+            throw error;
+        }
+    },
+};
 
 // Game API functions
 export const gameAPI = {

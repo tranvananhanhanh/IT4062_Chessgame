@@ -83,18 +83,45 @@ CREATE TABLE move (
 );
 
 -- ===========================================
+-- TABLE: elo_history (ELO rating changes)
+-- ===========================================
+CREATE TABLE elo_history (
+    elo_history_id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL,
+    match_id INT NULL,
+    old_elo INT NOT NULL,
+    new_elo INT NOT NULL,
+    elo_change INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_elo_user FOREIGN KEY (user_id)
+        REFERENCES users(user_id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_elo_match FOREIGN KEY (match_id)
+        REFERENCES match_game(match_id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL
+);
+
+-- ===========================================
 -- INDEXES
 -- ===========================================
 CREATE INDEX idx_user_state ON users(state);
+CREATE INDEX idx_user_elo ON users(elo_point DESC);
 CREATE INDEX idx_match_status ON match_game(status);
 CREATE INDEX idx_move_match ON move(match_id);
 CREATE INDEX idx_move_user ON move(user_id);
+CREATE INDEX idx_elo_history_user ON elo_history(user_id);
+CREATE INDEX idx_elo_history_date ON elo_history(created_at DESC);
 
 -- ===========================================
 -- SAMPLE DATA
 -- ===========================================
 INSERT INTO users (name, password_hash, state, elo_point)
 VALUES 
+('Kakibara', '11223344', 'in_game', 1100),
 ('alice', 'hash_1', 'online', 1020),
 ('bob', 'hash_2', 'offline', 980);
 

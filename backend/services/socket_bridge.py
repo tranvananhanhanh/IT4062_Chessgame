@@ -1,5 +1,6 @@
 import socket
 import threading
+import time
 from typing import Optional
 
 class CSocketBridge:
@@ -48,6 +49,39 @@ class CSocketBridge:
             self.connected = False
             return False
 
+    def _flush_buffer(self):
+        """Flush any pending data in the socket buffer"""
+        try:
+            self.socket.setblocking(False)
+            while True:
+                try:
+                    data = self.socket.recv(8192)
+                    if not data:
+                        break
+                    print(f"[DEBUG] Flushed stale data: {data.decode('utf-8').strip()}")
+                except BlockingIOError:
+                    break
+        except:
+            pass
+        finally:
+            self.socket.setblocking(True)
+
+    def _read_all_available(self) -> str:
+        """Read all available data from socket with short timeout"""
+        all_data = ""
+        self.socket.settimeout(0.2)  # Short timeout
+        try:
+            while True:
+                chunk = self.socket.recv(8192)
+                if not chunk:
+                    break
+                all_data += chunk.decode('utf-8')
+        except socket.timeout:
+            pass
+        except:
+            pass
+        return all_data
+
     def send_command(self, command: str) -> Optional[str]:
         """Send command to C server and get response"""
         # Reconnect if disconnected
@@ -58,15 +92,63 @@ class CSocketBridge:
 
         try:
             with self.lock:
+                # Flush any stale data before sending new command
+                self._flush_buffer()
+                
                 # Send command with newline
                 message = f"{command}\n"
                 self.socket.sendall(message.encode('utf-8'))
                 print(f"[DEBUG] Sent: {command}")
 
-                # Receive response
+                # Wait a moment for server to process
+                time.sleep(0.05)
+                
+                # Read initial response with longer timeout
                 self.socket.settimeout(10.0)
-                response = self.socket.recv(8192).decode('utf-8').strip()
-                print(f"[DEBUG] Received: {response}")
+                data = self.socket.recv(8192).decode('utf-8')
+                
+                # Brief pause then read any additional responses
+                time.sleep(0.1)
+                data += self._read_all_available()
+                
+                # Split by newline and filter empty lines
+                responses = [r.strip() for r in data.split('\n') if r.strip()]
+                print(f"[DEBUG] Received {len(responses)} responses: {responses}")
+                
+                if not responses:
+                    return None
+                
+                # Determine expected response prefix based on command
+                cmd_type = command.split('|')[0]
+                expected_prefixes = {
+                    'LOGIN': ['LOGIN_SUCCESS', 'LOGIN_FAILED', 'ERROR'],
+                    'GET_STATS': ['STATS', 'ERROR'],
+                    'GET_HISTORY': ['HISTORY', 'ERROR'],
+                    'GET_REPLAY': ['REPLAY', 'ERROR'],
+                    'GET_LEADERBOARD': ['LEADERBOARD', 'ERROR'],
+                    'GET_ELO_HISTORY': ['ELO_HISTORY', 'ERROR'],
+                    'START_MATCH': ['MATCH_CREATED', 'ERROR'],
+                    'MOVE': ['MOVE_SUCCESS', 'MOVE_ERROR', 'CHECKMATE', 'STALEMATE', 'GAME_END', 'ERROR'],
+                    'SURRENDER': ['SURRENDER_SUCCESS', 'ERROR'],
+                }
+                
+                prefixes = expected_prefixes.get(cmd_type, [])
+                
+                # Find the best matching response
+                response = None
+                for r in responses:
+                    for prefix in prefixes:
+                        if r.startswith(prefix):
+                            response = r
+                            break
+                    if response:
+                        break
+                
+                # Fallback to last response if no match found
+                if not response:
+                    response = responses[-1]
+                
+                print(f"[DEBUG] Selected response: {response}")
                 
                 return response
 
@@ -77,14 +159,7 @@ class CSocketBridge:
             
             # Retry once
             if self._connect():
-                try:
-                    message = f"{command}\n"
-                    self.socket.sendall(message.encode('utf-8'))
-                    self.socket.settimeout(10.0)
-                    response = self.socket.recv(8192).decode('utf-8').strip()
-                    return response
-                except:
-                    return None
+                return self.send_command(command)
             return None
             
         except socket.timeout:

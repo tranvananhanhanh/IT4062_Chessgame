@@ -62,11 +62,14 @@ int replay_validate_access(PGconn *conn, int match_id, int user_id);
 // ============ STATISTICS ============
 int stats_get_player_stats(PGconn *conn, int user_id, PlayerStats *stats);
 int stats_update_elo(PGconn *conn, int winner_id, int loser_id);
+int stats_update_elo_draw(PGconn *conn, int player1_id, int player2_id);
 
 // ============ HANDLERS ============
 void handle_history_request(PGconn *conn, int client_fd, int user_id);
 void handle_replay_request(PGconn *conn, int client_fd, int match_id, int user_id);
 void handle_stats_request(PGconn *conn, int client_fd, int user_id);
+void handle_leaderboard_request(PGconn *conn, int client_fd, int limit);
+void handle_elo_history_request(PGconn *conn, int client_fd, int user_id);
 
 // ============ FORMATTING ============
 void format_history_response(MatchHistoryItem *items, int count, char *response);

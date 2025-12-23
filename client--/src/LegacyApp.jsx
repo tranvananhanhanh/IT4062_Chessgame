@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react'
 import Header from './components/layout/Header'
 import SideNav from './components/navigation/SideNav'
 import LoginPanel from './components/auth/LoginPanel'
+import RegisterPanel from './components/auth/RegisterPanel'
 import MatchHistory from './components/MatchHistory'
+import { authAPI, gameAPI } from './api/api'
 import './LegacyApp.css'
 
 const PIECE_ORDER = ['rook', 'knight', 'bishop', 'queen', 'king', 'bishop', 'knight', 'rook']
@@ -209,23 +211,130 @@ function LegacyApp() {
   const [lastMove, setLastMove] = useState(null)
   const [gameStarted, setGameStarted] = useState(false)
   const [showLoginPanel, setShowLoginPanel] = useState(false)
+  const [user, setUser] = useState(null)
+  const [isLoggingIn, setIsLoggingIn] = useState(false)
+  const [loginError, setLoginError] = useState('')
+  const [showRegisterPanel, setShowRegisterPanel] = useState(false)
+  const [isRegistering, setIsRegistering] = useState(false)
+  const [registerError, setRegisterError] = useState('')
   const [controlTab, setControlTab] = useState('newGame')
   const [, setShowBoardModal] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
-  const handleRegisterClick = () =>
-    setGameMessage('Đăng ký tài khoản đang được chuẩn bị cho bản client tiếp theo.')
-  const handleLoginClick = () => {
-    setShowLoginPanel(true)
-    setGameMessage('Mở biểu mẫu đăng nhập để kết nối với cộng đồng.')
-  }
-  const handleLoginSubmit = (event) => {
-    event.preventDefault()
+  const [currentMatchId, setCurrentMatchId] = useState(1)
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
+  const [isLeavingMatch, setIsLeavingMatch] = useState(false)
+  const [leaveError, setLeaveError] = useState('')
+  const handleRegisterClick = () => {
+    setRegisterError('')
+    setShowRegisterPanel(true)
     setShowLoginPanel(false)
-    setGameMessage('Đăng nhập demo thành công, nhấn Get Started để vào bàn cờ.')
+    setGameMessage('Nhap thong tin de tao tai khoan moi.')
+  }
+  const handleLoginClick = () => {
+    if (user) {
+      setGameMessage(`Ban dang dang nhap voi tai khoan ${user.username}.`)
+      return
+    }
+    setLoginError('')
+    setShowRegisterPanel(false)
+    setShowLoginPanel(true)
+    setGameMessage('Mo form dang nhap va ket noi den API xac thuc.')
+  }
+  const handleRegisterSubmit = async ({ username, password }) => {
+    try {
+      setIsRegistering(true)
+      setRegisterError('')
+      const result = await authAPI.register(username, password)
+      if (result?.success) {
+        setUser({ id: result.user_id, username: result.username, elo: result.elo })
+        setShowRegisterPanel(false)
+        setGameMessage(`Dang ky thanh cong, xin chao ${result.username}.`)
+      } else {
+        setRegisterError(result?.error || 'Dang ky that bai.')
+      }
+    } catch (error) {
+      setRegisterError(error.message || 'Dang ky that bai.')
+    } finally {
+      setIsRegistering(false)
+    }
+  }
+  const handleLoginSubmit = async ({ username, password }) => {
+    try {
+      setIsLoggingIn(true)
+      setLoginError('')
+      const result = await authAPI.login(username, password)
+
+      if (result?.success) {
+        setUser({ id: result.user_id, username: result.username, elo: result.elo })
+        setShowLoginPanel(false)
+        setGameMessage(`Dang nhap thanh cong, xin chao ${result.username}.`)
+      } else {
+        setLoginError(result?.error || 'Dang nhap that bai.')
+        setGameMessage('Dang nhap that bai, vui long kiem tra thong tin.')
+      }
+    } catch (error) {
+      setLoginError(error.message || 'Dang nhap that bai.')
+      setGameMessage('Co loi xay ra khi goi API dang nhap.')
+    } finally {
+      setIsLoggingIn(false)
+    }
   }
   const handleForgotPassword = () =>
-    setGameMessage('Chức năng quên mật khẩu sẽ xuất hiện trong bản dựng tiếp theo.')
-  const handleCloseLogin = () => setShowLoginPanel(false)
+    setGameMessage('Chuc nang quen mat khau se xuat hien trong ban tiep theo.')
+  const handleCloseLogin = () => {
+    setLoginError('')
+    setShowLoginPanel(false)
+  }
+  const handleCloseRegister = () => {
+    setRegisterError('')
+    setShowRegisterPanel(false)
+  }
+  const handleLogout = () => {
+    setUser(null)
+    setGameMessage('Ban da dang xuat.')
+  }
+  const handleMatchIdChange = (event) => {
+    const value = event.target.value
+    setCurrentMatchId(value === '' ? '' : Number(value))
+  }
+  const handleLeaveClick = () => {
+    setLeaveError('')
+    if (!user) {
+      setLeaveError('Ban can dang nhap de xin dau hang.')
+    }
+    setShowLeaveConfirm(true)
+  }
+  const handleConfirmLeave = async () => {
+    if (!user) {
+      setLeaveError('Ban can dang nhap de xin dau hang.')
+      return
+    }
+    if (!currentMatchId) {
+      setLeaveError('Chua co match_id de roi tran.')
+      return
+    }
+    try {
+      setIsLeavingMatch(true)
+      setLeaveError('')
+      const result = await gameAPI.surrenderGame(currentMatchId, user.id)
+      if (result?.error) {
+        setLeaveError(result.error)
+        return
+      }
+      setGameMessage('Ban da roi tran va duoc dua ve sanh cho.')
+      resetGame('Trang di truoc')
+      setGameStarted(false)
+      setShowLeaveConfirm(false)
+    } catch (error) {
+      setLeaveError(error.message || 'Khong the roi tran.')
+    } finally {
+      setIsLeavingMatch(false)
+    }
+  }
+  const handleCancelLeave = () => {
+    setShowLeaveConfirm(false)
+    setLeaveError('')
+  }
   const handleLearnMore = () =>
     setGameMessage('Khám phá cộng đồng và các chế độ luyện tập mới của IT4062 Chessgame.')
 
@@ -321,9 +430,11 @@ function LegacyApp() {
   return (
     <div className="chess-shell">
       <SideNav
+        user={user}
         onLoginClick={handleLoginClick}
         onRegisterClick={handleRegisterClick}
         onHistoryClick={() => setShowHistory(true)}
+        onLogout={handleLogout}
       />
       <main className="main-area">
         <Header />
@@ -531,18 +642,32 @@ function LegacyApp() {
                       ⏭
                     </button>
                   </div>
+                  
                   <div className="game-summary">
                     <p>Ván cờ đang diễn ra</p>
-                    <small>IT4062 Rapid • 10 phút</small>
+                    <small>IT4062 Rapid 10 phut</small>
                     <button type="button" className="link-btn" onClick={() => setHistory([])}>
-                      Xóa lịch sử
+                      Xoa lich su
                     </button>
+                    <div className="match-meta">
+                      <label htmlFor="match-id-input">Match ID</label>
+                      <input
+                        id="match-id-input"
+                        type="number"
+                        value={currentMatchId}
+                        onChange={handleMatchIdChange}
+                        min="1"
+                      />
+                      <span className="match-meta-user">Player ID: {user?.id ?? '-'}</span>
+                    </div>
                   </div>
                   <div className="move-actions">
-                    <button type="button">½ Hòa cờ</button>
-                    <button type="button">🏳️ Đầu Hàng</button>
-                    <button type="button" onClick={() => resetGame('Bắt đầu lại trận đấu!')}>
-                      ⟳ Đấu lại
+                    <button type="button">De nghi hoa</button>
+                    <button type="button" className="leave-btn" onClick={handleLeaveClick}>
+                      Xin dau hang / Roi tran
+                    </button>
+                    <button type="button" onClick={() => resetGame('Bat dau lai tran dau!')}>
+                      Choi lai
                     </button>
                   </div>
                 </div>
@@ -567,7 +692,43 @@ function LegacyApp() {
             onSubmit={handleLoginSubmit}
             onForgot={handleForgotPassword}
             onClose={handleCloseLogin}
+            isLoading={isLoggingIn}
+            error={loginError}
           />
+        </div>
+      )}
+      {showRegisterPanel && (
+        <div className="login-overlay">
+          <RegisterPanel
+            onSubmit={handleRegisterSubmit}
+            onClose={handleCloseRegister}
+            isLoading={isRegistering}
+            error={registerError}
+          />
+        </div>
+      )}
+      {showLeaveConfirm && (
+        <div className="confirm-overlay">
+          <div className="confirm-dialog">
+            <h3>Roi tran?</h3>
+            <p>Ban se bi tinh la thua va bi tru ELO. Ban chac chan muon roi tran?</p>
+            {!user && <p className="confirm-error">Ban can dang nhap de thuc hien.</p>}
+            {!currentMatchId && <p className="confirm-error">Nhap Match ID de tiep tuc.</p>}
+            {leaveError && <p className="confirm-error">{leaveError}</p>}
+            <div className="confirm-actions">
+              <button
+                type="button"
+                className="confirm-leave"
+                onClick={handleConfirmLeave}
+                disabled={isLeavingMatch || !user || !currentMatchId}
+              >
+                {isLeavingMatch ? 'Dang xu ly...' : 'Dong y roi tran'}
+              </button>
+              <button type="button" className="confirm-cancel" onClick={handleCancelLeave}>
+                O lai tran
+              </button>
+            </div>
+          </div>
         </div>
       )}
       {showHistory && (

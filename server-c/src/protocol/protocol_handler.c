@@ -1,6 +1,8 @@
 #include "protocol_handler.h"
+#include "login_handler.h"
 #include "game.h"
 #include "history.h"
+#include "database.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -983,7 +985,10 @@ void protocol_handle_command(ClientSession *session, const char *buffer, PGconn 
     printf("[Protocol] Command: '%s' | Params: %d\n", command, num_params);
     
     // Route to appropriate handler
-    if (strcmp(command, "START_MATCH") == 0 && num_params >= 5) {
+    if (strcmp(command, "LOGIN") == 0 && num_params >= 3) {
+        handle_login(session, param1, param2, db);
+    }
+    else if (strcmp(command, "START_MATCH") == 0 && num_params >= 5) {
         handle_start_match(session, param1, param2, param3, param4, db);
     }
     else if (strcmp(command, "JOIN_MATCH") == 0 && num_params >= 4) {
@@ -1035,6 +1040,15 @@ void protocol_handle_command(ClientSession *session, const char *buffer, PGconn 
     }
     else if (strcmp(command, "REMATCH_DECLINE") == 0) {
         handle_rematch_decline(session, num_params, param1, param2, db);
+    }
+    // Leaderboard and ELO commands
+    else if (strcmp(command, "GET_LEADERBOARD") == 0) {
+        int limit = (num_params >= 2) ? atoi(param1) : 20;
+        handle_leaderboard_request(db, session->socket_fd, limit);
+    }
+    else if (strcmp(command, "GET_ELO_HISTORY") == 0 && num_params >= 2) {
+        int user_id = atoi(param1);
+        handle_elo_history_request(db, session->socket_fd, user_id);
     }
     else {
         char error[128];

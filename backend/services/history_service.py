@@ -1,6 +1,6 @@
 from services.socket_bridge import get_c_bridge
 import json
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 
 class HistoryService:
     """Service class for game history and statistics operations"""
