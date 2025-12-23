@@ -1,10 +1,12 @@
-import { useState } from 'react'
-import ChessGame from './components/ChessGame'
-import MatchHistory from './components/MatchHistory'
-import './ApiApp.css'
+import { useState } from 'react';
+import ChessGame from './components/playpvp/ChessGame';
+import MatchHistory from './components/MatchHistory';
+import ChessBoard from "./components/chess/ChessBoard";
+import ChessGameBot from './components/playbot/ChessGameBot';
+import './ApiApp.css';
 
 function ApiApp() {
-  const [activeTab, setActiveTab] = useState('game')
+  const [activeTab, setActiveTab] = useState('game');
 
   return (
     <div className="api-app">
@@ -17,6 +19,12 @@ function ApiApp() {
             ♟ Play Game
           </button>
           <button
+            className={`nav-tab ${activeTab === 'bot' ? 'active' : ''}`}
+            onClick={() => setActiveTab('bot')}
+          >
+            🤖 Play with Bot
+          </button>
+          <button
             className={`nav-tab ${activeTab === 'history' ? 'active' : ''}`}
             onClick={() => setActiveTab('history')}
           >
@@ -27,6 +35,7 @@ function ApiApp() {
 
       <main className="app-main">
         {activeTab === 'game' && <ChessGame />}
+        {activeTab === 'bot' && <ChessGameBot />}
         {activeTab === 'history' && <MatchHistory />}
       </main>
 
@@ -35,7 +44,7 @@ function ApiApp() {
         <p>Built with React, Flask, and C</p>
       </footer>
     </div>
-  )
+  );
 }
 
-export default ApiApp
+export default ApiApp;

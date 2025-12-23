@@ -31,6 +31,17 @@ HISTORY_SRCS = $(HISTORY_DIR)/history.c \
 PROTOCOL_SRCS = $(PROTOCOL_DIR)/protocol_handler.c \
 				$(PROTOCOL_DIR)/matchmaking.c
 
+# New modular handler directories
+MATCH_DIR = $(SRC_DIR)/match
+BOT_DIR = $(SRC_DIR)/bot
+FRIEND_DIR = $(SRC_DIR)/friend
+CONTROL_DIR = $(SRC_DIR)/control
+
+MATCH_SRCS = $(MATCH_DIR)/match.c
+BOT_SRCS = $(BOT_DIR)/bot.c
+FRIEND_SRCS = $(FRIEND_DIR)/friend.c
+CONTROL_SRCS = $(CONTROL_DIR)/control.c
+
 SESSION_SRCS = $(SESSION_DIR)/client_session.c
 
 SERVER_SRCS = $(SERVER_DIR)/server_core.c
@@ -43,7 +54,9 @@ DB_SRCS = $(DB_DIR)/db_connection.c \
 
 MAIN_SRC = main.c
 
-ALL_SRCS = $(MAIN_SRC) $(GAME_SRCS) $(TIMER_SRCS) $(HISTORY_SRCS) $(PROTOCOL_SRCS) $(SESSION_SRCS) $(SERVER_SRCS) $(DB_SRCS)
+ALL_SRCS = $(MAIN_SRC) $(GAME_SRCS) $(TIMER_SRCS) $(HISTORY_SRCS) $(PROTOCOL_SRCS) \
+           $(MATCH_SRCS) $(BOT_SRCS) $(FRIEND_SRCS) $(CONTROL_SRCS) \
+           $(SESSION_SRCS) $(SERVER_SRCS) $(DB_SRCS)
 
 # Object files
 OBJS = $(ALL_SRCS:%.c=$(BUILD_DIR)/%.o)
@@ -62,6 +75,10 @@ directories:
 	@mkdir -p $(BUILD_DIR)/src/timer
 	@mkdir -p $(BUILD_DIR)/src/history
 	@mkdir -p $(BUILD_DIR)/src/protocol
+	@mkdir -p $(BUILD_DIR)/src/match
+	@mkdir -p $(BUILD_DIR)/src/bot
+	@mkdir -p $(BUILD_DIR)/src/friend
+	@mkdir -p $(BUILD_DIR)/src/control
 	@mkdir -p $(BUILD_DIR)/src/session
 	@mkdir -p $(BUILD_DIR)/src/server
 	@mkdir -p $(BUILD_DIR)/src/db

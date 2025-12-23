@@ -2,6 +2,7 @@
 #include "game.h"
 #include <stdio.h>
 #include <signal.h>
+#include <time.h>
 
 // Global variables
 GameManager game_manager;
@@ -25,8 +26,22 @@ int main() {
         return 1;
     }
     
-    // Start server (blocking call)
-    server_start();
+    printf("[Server] Ready to accept connections!\n\n");
+    
+    // Track last cleanup time
+    time_t last_cleanup = time(NULL);
+    
+    while (1) {
+        // Cleanup finished matches every 30 seconds
+        time_t now = time(NULL);
+        if (now - last_cleanup > 30) {
+            game_manager_cleanup_finished_matches(&game_manager);
+            last_cleanup = now;
+        }
+        
+        // Start server (blocking call)
+        server_start();
+    }
     
     // Cleanup (will only reach here on error)
     server_shutdown();

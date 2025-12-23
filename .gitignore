@@ -113,3 +113,11 @@ MemoryCaptures/
 # ============================
 /*.bak
 *.backup
+
+# Python
+__pycache__/
+*.pyc
+
+# C build
+server-c/bin/
+*.o

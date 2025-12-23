@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = 'http://localhost:5002/api';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -58,6 +58,17 @@ export const gameAPI = {
         }
     },
 
+    // Get match status
+    getMatchStatus: async (matchId) => {
+        try {
+            const response = await api.get(`/game/status/${matchId}`);
+            return response.data;
+        } catch (error) {
+            console.error('Error getting match status:', error);
+            throw error;
+        }
+    },
+
     // Surrender game
     surrenderGame: async (matchId, playerId) => {
         try {
@@ -70,6 +81,20 @@ export const gameAPI = {
             console.error('Error surrendering game:', error);
             throw error;
         }
+    },
+};
+
+// Bot Play API functions
+export const botAPI = {
+    // Khởi tạo trận đấu với bot
+    startBotGame: async (userId) => {
+        const response = await api.post('/mode/bot', { user_id: userId });
+        return response.data;
+    },
+    // Đi nước với bot
+    makeBotMove: async (matchId, move) => {
+        const response = await api.post('/game/bot/move', { match_id: matchId, move });
+        return response.data;
     },
 };
 

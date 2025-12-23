@@ -295,6 +295,23 @@ def join_game(match_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/game/status/<int:match_id>', methods=['GET'])
+def get_match_status(match_id):
+    """
+    Get current status of a match (for polling)
+    Returns: {"match_id": int, "status": str, "white_online": bool, "black_online": bool, "current_fen": str}
+    """
+    try:
+        result = game_service.get_match_status(match_id)
+        
+        if result["success"]:
+            return jsonify(result)
+        else:
+            return jsonify({"error": result["error"]}), 404
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/game/surrender', methods=['POST'])
 def surrender_game():
     """
@@ -550,6 +567,40 @@ def list_friend_requests(user_id):
             return jsonify({"success": False, "error": response or "Failed to get friend requests", "requests": []}), 400
     except Exception as e:
         return jsonify({"success": False, "error": str(e), "requests": []}), 500
+
+@app.route('/api/game/create', methods=['POST'])
+def create_game():
+    """
+    Create a new PvP game
+    Expected JSON: {"user1_id": 1, "username1": "alice", "user2_id": 2, "username2": "bob"}
+    """
+    try:
+        data = request.get_json()
+        user1_id = data.get('user1_id')
+        username1 = data.get('username1')
+        user2_id = data.get('user2_id')
+        username2 = data.get('username2')
+
+        if not all([user1_id, username1, user2_id, username2]):
+            return jsonify({"error": "Missing required fields"}), 400
+
+        print(f"[API] Creating game: {username1} (ID:{user1_id}) vs {username2} (ID:{user2_id})")
+        
+        result = game_service.create_game(user1_id, username1, user2_id, username2)
+
+        if result.get("success"):
+            print(f"[API] Game created successfully: match_id={result.get('match_id')}")
+            return jsonify(result)
+        else:
+            error_msg = result.get("error", "Unknown error")
+            print(f"[API] Failed to create game: {error_msg}")
+            return jsonify({"error": error_msg}), 500
+
+    except Exception as e:
+        print(f"[API] Exception in create_game: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5002)

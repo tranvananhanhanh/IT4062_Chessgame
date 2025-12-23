@@ -107,8 +107,25 @@ void server_start() {
     printf("[Server] Listening on port %d...\n", PORT);
     printf("[Server] Ready to accept connections!\n\n");
     
+    // ✅ Track last cleanup time
+    time_t last_cleanup = time(NULL);
+    time_t last_force_cleanup = time(NULL);
+    
     // Accept connections loop
     while (1) {
+        // ✅ Periodic cleanup (every 30 seconds)
+        time_t now = time(NULL);
+        if (now - last_cleanup >= 30) {
+            game_manager_cleanup_finished_matches(&game_manager);
+            last_cleanup = now;
+        }
+        
+        // ✅ Force cleanup stale matches (every 5 minutes)
+        if (now - last_force_cleanup >= 300) {
+            game_manager_force_cleanup_stale_matches(&game_manager);
+            last_force_cleanup = now;
+        }
+        
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
         
