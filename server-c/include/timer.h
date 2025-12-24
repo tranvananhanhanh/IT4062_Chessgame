@@ -3,6 +3,8 @@
 
 #include <pthread.h>
 #include <time.h>
+#include "client_session.h"
+#include <libpq-fe.h>
 
 // Timer callback function type
 typedef void (*timer_callback_t)(int match_id);
@@ -36,5 +38,11 @@ int timer_manager_pause_timer(TimerManager *manager, int match_id);
 int timer_manager_resume_timer(TimerManager *manager, int match_id);
 int timer_manager_get_remaining_time(TimerManager *manager, int match_id);
 void timer_manager_cleanup(TimerManager *manager);
+
+void handle_start_timer(ClientSession *session, char *param1, PGconn *db);
+void handle_stop_timer(ClientSession *session, char *param1, PGconn *db);
+void handle_pause_timer(ClientSession *session, char *param1, PGconn *db);
+void handle_resume_timer(ClientSession *session, char *param1, PGconn *db);
+void handle_get_time(ClientSession *session, char *param1, PGconn *db);
 
 #endif // TIMER_H

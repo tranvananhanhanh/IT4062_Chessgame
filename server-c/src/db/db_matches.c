@@ -6,7 +6,7 @@
 int db_create_match(PGconn *conn, int user1_id, int user2_id, const char *type) {
     if (!db_check_connection(conn)) return -1;
     
-    // Insert match
+    // Insert match with 'playing' status - để ván chơi có thể chơi được luôn
     const char *query = "INSERT INTO match_game (type, status, starttime) "
                        "VALUES ($1, 'playing', NOW()) RETURNING match_id";
     

@@ -1,14 +1,15 @@
 #ifndef CLIENT_SESSION_H
 #define CLIENT_SESSION_H
 
-#include "game.h"
+// Forward declaration to avoid circular include
+struct GameMatch;
 
 // Client session structure
 typedef struct {
     int socket_fd;
     int user_id;
     char username[64];
-    GameMatch *current_match;
+    struct GameMatch *current_match;
 } ClientSession;
 
 // Session management functions

@@ -1,7 +1,9 @@
 #include "client_session.h"
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 #include <stdio.h>
+#include "game.h"
 
 ClientSession* client_session_create(int socket_fd) {
     ClientSession *session = (ClientSession*)malloc(sizeof(ClientSession));

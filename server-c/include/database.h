@@ -25,5 +25,7 @@ int db_get_match_moves(PGconn *conn, int match_id, char *output, int output_size
 int db_get_user_matches(PGconn *conn, int user_id, char *output, int output_size);
 int db_get_user_stats(PGconn *conn, int user_id, char *output, int output_size);
 int db_update_user_stats(PGconn *conn, int user_id, const char *result);
+int db_verify_user(PGconn *conn, const char *username, const char *password);
+int db_get_user_info(PGconn *conn, int user_id, char *output, int output_size);
 
 #endif // DATABASE_H

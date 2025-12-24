@@ -107,7 +107,7 @@ typedef struct {
 } Player;
 
 // Game match structure
-typedef struct {
+typedef struct GameMatch {
     int match_id;
     GameStatus status;
     Player white_player;
@@ -118,6 +118,7 @@ typedef struct {
     GameResult result;
     int winner_id;
     int draw_requester_id;  // ID of player who requested draw (0 if none)
+    int rematch_id;         // ID of new match if rematch accepted (0 if none)
     pthread_mutex_t lock;
 } GameMatch;
 
@@ -154,6 +155,7 @@ int is_path_clear(ChessBoard *board, int from_row, int from_col, int to_row, int
 int is_checkmate(ChessBoard *board, PlayerColor player_color);
 int is_stalemate(ChessBoard *board, PlayerColor player_color);
 int has_legal_moves(ChessBoard *board, PlayerColor player_color);
+int is_insufficient_material(const ChessBoard *board);
 
 // ============ UTILITY FUNCTIONS ============
 void notation_to_coords(const char *notation, int *row, int *col);
@@ -171,6 +173,8 @@ GameMatch* game_manager_create_bot_match(GameManager *manager, Player white, Pla
 GameMatch* game_manager_find_match(GameManager *manager, int match_id);
 GameMatch* game_manager_find_match_by_player(GameManager *manager, int socket_fd);
 void game_manager_remove_match(GameManager *manager, int match_id);
+void game_manager_cleanup_finished_matches(GameManager *manager);
+void game_manager_force_cleanup_stale_matches(GameManager *manager);
 
 // ============ GAME MATCH ============
 int game_match_make_move(GameMatch *match, int player_socket_fd, int player_id, const char *from, const char *to, PGconn *db);
