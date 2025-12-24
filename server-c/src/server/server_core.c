@@ -11,6 +11,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <poll.h>
+#define MAX_CLIENTS 1024
 
 // External global variables
 extern GameManager game_manager;
@@ -72,95 +74,100 @@ int server_init(PGconn **db_connection) {
     return 0;
 }
 
-// Start server and accept connections
+// Start server and accept connections using poll for I/O multiplexing
 void server_start() {
-    // Create socket
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
         perror("[Error] Socket creation failed");
         return;
     }
-    
-    // Reuse address
     int opt = 1;
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    
-    // Bind to port
     struct sockaddr_in server_addr;
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(PORT);
-    
     if (bind(server_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         perror("[Error] Bind failed");
         close(server_fd);
         return;
     }
-    
-    // Listen
     if (listen(server_fd, 10) < 0) {
         perror("[Error] Listen failed");
         close(server_fd);
         return;
     }
-    
     printf("[Server] Listening on port %d...\n", PORT);
     printf("[Server] Ready to accept connections!\n\n");
-    
-    // ✅ Track last cleanup time
+
+    struct pollfd fds[MAX_CLIENTS];
+    ClientSession* sessions[MAX_CLIENTS] = {0};
+    int nfds = 1;
+    fds[0].fd = server_fd;
+    fds[0].events = POLLIN;
+
     time_t last_cleanup = time(NULL);
     time_t last_force_cleanup = time(NULL);
-    
-    // Accept connections loop
+
     while (1) {
-        // ✅ Periodic cleanup (every 30 seconds)
         time_t now = time(NULL);
         if (now - last_cleanup >= 30) {
             game_manager_cleanup_finished_matches(&game_manager);
             last_cleanup = now;
         }
-        
-        // ✅ Force cleanup stale matches (every 5 minutes)
         if (now - last_force_cleanup >= 300) {
             game_manager_force_cleanup_stale_matches(&game_manager);
             last_force_cleanup = now;
         }
-        
-        struct sockaddr_in client_addr;
-        socklen_t client_len = sizeof(client_addr);
-        
-        int client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &client_len);
-        
-        if (client_fd < 0) {
-            perror("[Error] Accept failed");
-            continue;
+        int poll_count = poll(fds, nfds, 1000); // 1s timeout
+        if (poll_count < 0) {
+            perror("[Error] poll failed");
+            break;
         }
-        
-        printf("[Server] New connection from %s:%d (fd: %d)\n",
-               inet_ntoa(client_addr.sin_addr),
-               ntohs(client_addr.sin_port),
-               client_fd);
-        
-        // Create session
-        ClientSession *session = client_session_create(client_fd);
-        if (session == NULL) {
-            fprintf(stderr, "[Error] Failed to create session for client %d\n", client_fd);
-            close(client_fd);
-            continue;
+        // New connection
+        if (fds[0].revents & POLLIN) {
+            struct sockaddr_in client_addr;
+            socklen_t client_len = sizeof(client_addr);
+            int client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &client_len);
+            if (client_fd >= 0 && nfds < MAX_CLIENTS) {
+                fds[nfds].fd = client_fd;
+                fds[nfds].events = POLLIN;
+                sessions[nfds] = client_session_create(client_fd);
+                nfds++;
+                printf("[Server] New connection from %s:%d (fd: %d)\n",
+                       inet_ntoa(client_addr.sin_addr),
+                       ntohs(client_addr.sin_port),
+                       client_fd);
+                // Send welcome message
+                const char *welcome = "WELCOME|Chess Server v1.0\n";
+                send(client_fd, welcome, strlen(welcome), 0);
+            }
         }
-        
-        // Create thread for client
-        pthread_t thread;
-        if (pthread_create(&thread, NULL, client_handler, session) != 0) {
-            fprintf(stderr, "[Error] Failed to create thread for client %d\n", client_fd);
-            client_session_destroy(session);
-            close(client_fd);
-            continue;
+        // Handle client IO
+        for (int i = 1; i < nfds; ++i) {
+            if (fds[i].revents & POLLIN) {
+                char buffer[BUFFER_SIZE] = {0};
+                int bytes_read = recv(fds[i].fd, buffer, BUFFER_SIZE - 1, 0);
+                if (bytes_read <= 0) {
+                    // Client disconnected
+                    client_session_handle_disconnect(sessions[i]);
+                    close(fds[i].fd);
+                    client_session_destroy(sessions[i]);
+                    // Remove from poll list
+                    for (int j = i; j < nfds - 1; ++j) {
+                        fds[j] = fds[j+1];
+                        sessions[j] = sessions[j+1];
+                    }
+                    nfds--;
+                    i--;
+                } else {
+                    buffer[strcspn(buffer, "\n")] = 0;
+                    printf("[Server] Received from client %d: %s\n", fds[i].fd, buffer);
+                    protocol_handle_command(sessions[i], buffer, db_conn);
+                }
+            }
         }
-        
-        pthread_detach(thread);
     }
-    
     close(server_fd);
 }
 

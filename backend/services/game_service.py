@@ -1,20 +1,3 @@
-# game_service.py - Facade pattern for game services
-"""
-Refactored Game Service following SOLID principles
-
-This is a Facade that delegates to specialized services:
-- PvPGameService: Player vs Player game logic
-- BotGameService: Bot game logic  
-- GameControlService: Game control operations (pause, resume, draw, rematch)
-- GameStatusService: Status queries
-
-Benefits:
-✅ Single Responsibility: Each service has ONE clear purpose
-✅ Easy Testing: Can mock individual services
-✅ Maintainability: Changes isolated to specific modules
-✅ Reusability: Services can be used independently
-"""
-
 from typing import Dict, Any
 from interfaces.igame_service import IGameService
 from services.game import (
@@ -23,6 +6,7 @@ from services.game import (
     GameControlService,
     GameStatusService
 )
+from services.bridge import get_c_server_bridge
 
 
 class GameService(IGameService):
@@ -37,6 +21,7 @@ class GameService(IGameService):
         self.bot_service = BotGameService()
         self.control_service = GameControlService()
         self.status_service = GameStatusService()
+        self.c_bridge = get_c_server_bridge()
 
     # ==================== PvP Game Methods ====================
     
@@ -62,6 +47,19 @@ class GameService(IGameService):
     def surrender_game(self, match_id: int, player_id: int) -> Dict[str, Any]:
         """Surrender the current game - delegates to PvPGameService"""
         return self.pvp_service.surrender_game(match_id, player_id)
+
+    def create_game(self, user1_id: int, username1: str, user2_id: int, username2: str):
+        """
+        Create a new PvP game by sending command to C server (or DB logic as needed)
+        """
+        command = f"CREATE_GAME|{user1_id}|{username1}|{user2_id}|{username2}"
+        response = self.c_bridge.send_command(command)
+        if response and response.startswith("GAME_CREATED|"):
+            parts = response.strip().split('|')
+            match_id = int(parts[1]) if len(parts) > 1 else None
+            return {"success": True, "match_id": match_id}
+        else:
+            return {"success": False, "error": response or "Failed to create game"}
 
     # ==================== Bot Game Methods ====================
     

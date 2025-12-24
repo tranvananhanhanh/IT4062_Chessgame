@@ -107,7 +107,7 @@ typedef struct {
 } Player;
 
 // Game match structure
-typedef struct {
+typedef struct GameMatch {
     int match_id;
     GameStatus status;
     Player white_player;

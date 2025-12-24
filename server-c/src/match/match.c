@@ -1,5 +1,6 @@
 #include "match.h"
 #include "game.h"
+#include "elo.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,8 +31,16 @@ void handle_start_match(ClientSession *session, char *param1, char *param2,
     strcpy(black.username, username2);
     
     GameMatch *match = game_manager_create_match(&game_manager, white, black, db);
-    
     if (match != NULL) {
+        // Force match to PLAYING state immediately so both players can play right after creation
+        match->status = GAME_PLAYING;
+        // Optionally, update DB as well (if needed for consistency)
+        char update_query[128];
+        snprintf(update_query, sizeof(update_query),
+            "UPDATE match_game SET status='playing' WHERE match_id=%d", match->match_id);
+        PGresult *res = PQexec(db, update_query);
+        PQclear(res);
+        
         session->current_match = match;
         session->user_id = user1_id;
         strcpy(session->username, username1);
@@ -279,6 +288,17 @@ void handle_surrender(ClientSession *session, int num_params, char *param1,
         }
 
         if (player_socket != -1) {
+            // TÍCH HỢP ELO: Nếu surrender, xác định winner/loser và cập nhật ELO
+            int winner_id = (match->white_player.user_id == player_id) ? match->black_player.user_id : match->white_player.user_id;
+            int loser_id = player_id;
+            EloChange winner_change, loser_change;
+            if (winner_id > 0 && loser_id > 0) {
+                elo_update_ratings(db, winner_id, loser_id, &winner_change, &loser_change);
+                // Lưu lịch sử ELO
+                int match_id = match->match_id;
+                elo_save_history(db, winner_id, match_id, winner_change.old_elo, winner_change.new_elo, winner_change.elo_change);
+                elo_save_history(db, loser_id, match_id, loser_change.old_elo, loser_change.new_elo, loser_change.elo_change);
+            }
             game_match_handle_surrender(match, player_socket, db);
         } else {
             char error[] = "ERROR|Player not in match\n";
@@ -291,4 +311,14 @@ void handle_surrender(ClientSession *session, int num_params, char *param1,
         char error[] = "ERROR|Not in a match\n";
         send(session->socket_fd, error, strlen(error), 0);
     }
+}
+
+void handle_create_match(ClientSession *session, char *param1, char *param2, PGconn *db) {
+    // TODO: Implement actual logic
+    printf("handle_create_match called (stub)\n");
+}
+
+void handle_get_game_state(ClientSession *session, char *param1, PGconn *db) {
+    // TODO: Implement actual logic
+    printf("handle_get_game_state called (stub)\n");
 }

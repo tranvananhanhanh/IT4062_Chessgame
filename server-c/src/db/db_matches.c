@@ -6,9 +6,9 @@
 int db_create_match(PGconn *conn, int user1_id, int user2_id, const char *type) {
     if (!db_check_connection(conn)) return -1;
     
-    // Insert match with 'waiting' status - will be updated to 'playing' when opponent joins
+    // Insert match with 'playing' status - để ván chơi có thể chơi được luôn
     const char *query = "INSERT INTO match_game (type, status, starttime) "
-                       "VALUES ($1, 'waiting', NOW()) RETURNING match_id";
+                       "VALUES ($1, 'playing', NOW()) RETURNING match_id";
     
     const char *values[1] = {type};
     PGresult *res = PQexecParams(conn, query, 1, NULL, values, NULL, NULL, 0);

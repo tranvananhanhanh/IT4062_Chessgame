@@ -1,8 +1,8 @@
 CC = gcc
-#CFLAGS = -Wall -Wextra -g -Iinclude -I/usr/local/Cellar/postgresql@14/14.11_1/include/postgresql@14 -pthread
-#LDFLAGS = -L/usr/local/Cellar/postgresql@14/14.11_1/lib/postgresql@14 -lpq -lpthread -lm
-CFLAGS = -Wall -Wextra -g -Iinclude -I/usr/include/postgresql -pthread
-LDFLAGS = -L/usr/lib/x86_64-linux-gnu -lpq -lpthread -lm
+CFLAGS = -Wall -Wextra -g -Iinclude -I/usr/local/Cellar/postgresql@14/14.11_1/include/postgresql@14 -pthread
+LDFLAGS = -L/usr/local/Cellar/postgresql@14/14.11_1/lib/postgresql@14 -lpq -lpthread -lm
+#CFLAGS = -Wall -Wextra -g -Iinclude -I/usr/include/postgresql -pthread
+#LDFLAGS = -L/usr/lib/x86_64-linux-gnu -lpq -lpthread -lm
 
 # Directories
 SRC_DIR = src
@@ -28,8 +28,7 @@ TIMER_SRCS = $(TIMER_DIR)/timer.c
 HISTORY_SRCS = $(HISTORY_DIR)/history.c \
                $(HISTORY_DIR)/history_handlers.c
 
-PROTOCOL_SRCS = $(PROTOCOL_DIR)/protocol_handler.c \
-				$(PROTOCOL_DIR)/matchmaking.c
+PROTOCOL_SRCS = $(PROTOCOL_DIR)/protocol_handler.c
 
 # New modular handler directories
 MATCH_DIR = $(SRC_DIR)/match
@@ -52,11 +51,23 @@ DB_SRCS = $(DB_DIR)/db_connection.c \
           $(DB_DIR)/db_stats.c \
           $(DB_DIR)/db_users.c
 
+ELO_SRCS = $(SRC_DIR)/elo/elo_calc.c \
+           $(SRC_DIR)/elo/elo_history.c \
+           $(SRC_DIR)/elo/elo_db.c \
+           $(SRC_DIR)/elo/elo_leaderboard.c
+
+LOGIN_DIR = $(SRC_DIR)/login
+LOGIN_SRCS = $(LOGIN_DIR)/login.c $(LOGIN_DIR)/logout.c $(LOGIN_DIR)/resgister.c
+
+MATCHMAKING_DIR = $(SRC_DIR)/matchmaking
+MATCHMAKING_SRCS = $(MATCHMAKING_DIR)/matchmaking.c
+
 MAIN_SRC = main.c
 
 ALL_SRCS = $(MAIN_SRC) $(GAME_SRCS) $(TIMER_SRCS) $(HISTORY_SRCS) $(PROTOCOL_SRCS) \
            $(MATCH_SRCS) $(BOT_SRCS) $(FRIEND_SRCS) $(CONTROL_SRCS) \
-           $(SESSION_SRCS) $(SERVER_SRCS) $(DB_SRCS)
+           $(SESSION_SRCS) $(SERVER_SRCS) $(DB_SRCS) $(ELO_SRCS) \
+           $(LOGIN_SRCS) $(MATCHMAKING_SRCS)
 
 # Object files
 OBJS = $(ALL_SRCS:%.c=$(BUILD_DIR)/%.o)
@@ -82,6 +93,10 @@ directories:
 	@mkdir -p $(BUILD_DIR)/src/session
 	@mkdir -p $(BUILD_DIR)/src/server
 	@mkdir -p $(BUILD_DIR)/src/db
+	@mkdir -p $(BUILD_DIR)/src/elo
+	@mkdir -p $(BUILD_DIR)/src/login
+	@mkdir -p $(BUILD_DIR)/src/matchmaking
+
 	@mkdir -p $(BIN_DIR)
 
 # Link

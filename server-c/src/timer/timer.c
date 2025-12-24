@@ -200,3 +200,19 @@ void timer_manager_cleanup(TimerManager *manager) {
     pthread_mutex_unlock(&manager->lock);
     pthread_mutex_destroy(&manager->lock);
 }
+
+void handle_start_timer(ClientSession *session, char *param1, PGconn *db) {
+    printf("handle_start_timer called (stub)\n");
+}
+void handle_stop_timer(ClientSession *session, char *param1, PGconn *db) {
+    printf("handle_stop_timer called (stub)\n");
+}
+void handle_pause_timer(ClientSession *session, char *param1, PGconn *db) {
+    printf("handle_pause_timer called (stub)\n");
+}
+void handle_resume_timer(ClientSession *session, char *param1, PGconn *db) {
+    printf("handle_resume_timer called (stub)\n");
+}
+void handle_get_time(ClientSession *session, char *param1, PGconn *db) {
+    printf("handle_get_time called (stub)\n");
+}

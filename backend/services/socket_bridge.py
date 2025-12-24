@@ -20,5 +20,13 @@ def get_c_bridge():
     return get_c_server_bridge()
 
 
+def send_request(cmd: str):
+    """
+    Gửi lệnh sang C server và nhận phản hồi.
+    """
+    bridge = get_c_server_bridge()
+    return bridge.send_command(cmd)
+
+
 # Alias for backward compatibility
 CSocketBridge = get_c_server_bridge().__class__
