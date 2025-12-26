@@ -13,31 +13,27 @@ import random
 HOST = '127.0.0.1'
 PORT = 5001
 
-def calculate_bot_move(fen: str, player_move: str) -> tuple:
+def calculate_bot_move(fen: str, player_move: str, difficulty: str = "easy") -> tuple:
     """
     Calculate bot move given current FEN and player's last move
     Returns: (fen_after_player, bot_move, fen_after_bot)
+    difficulty: 'easy' (random/capture), 'hard' (stockfish/minimax)
     """
     try:
-        # Parse FEN and apply player move
+        import chess.engine
         board = chess.Board(fen)
         
-        # Parse player move (e.g., "e2e4")
+        # Apply player move
         if len(player_move) >= 4:
             from_square = chess.parse_square(player_move[0:2])
             to_square = chess.parse_square(player_move[2:4])
-            
-            # Check for promotion
             promotion = None
             if len(player_move) >= 5:
                 promotion_char = player_move[4].lower()
                 promotion_map = {'q': chess.QUEEN, 'r': chess.ROOK, 
                                 'b': chess.BISHOP, 'n': chess.KNIGHT}
                 promotion = promotion_map.get(promotion_char)
-            
             move = chess.Move(from_square, to_square, promotion=promotion)
-            
-            # Apply player move
             if move in board.legal_moves:
                 board.push(move)
                 fen_after_player = board.fen()
@@ -45,24 +41,35 @@ def calculate_bot_move(fen: str, player_move: str) -> tuple:
                 print(f"[Bot] Invalid player move: {player_move}", file=sys.stderr)
                 return None, None, None
         else:
-            # No player move (initial position)
             fen_after_player = fen
         
-        # Calculate bot move
         legal_moves = list(board.legal_moves)
         if not legal_moves:
             print("[Bot] No legal moves available", file=sys.stderr)
             return fen_after_player, "NOMOVE", fen_after_player
         
-        # Simple strategy: prioritize captures, then random
-        capturing_moves = [m for m in legal_moves if board.is_capture(m)]
+        # ====== EASY: random/capture ======
+        if difficulty == "easy":
+            capturing_moves = [m for m in legal_moves if board.is_capture(m)]
+            if capturing_moves:
+                bot_move = random.choice(capturing_moves)
+            else:
+                bot_move = random.choice(legal_moves)
         
-        if capturing_moves:
-            bot_move = random.choice(capturing_moves)
+        # ====== HARD: use stockfish or minimax ======
+        elif difficulty == "hard":
+            try:
+                # You must have stockfish installed and in PATH
+                with chess.engine.SimpleEngine.popen_uci("stockfish") as engine:
+                    result = engine.play(board, chess.engine.Limit(time=0.2))
+                    bot_move = result.move
+            except Exception as e:
+                print(f"[Bot] Stockfish error: {e}", file=sys.stderr)
+                # fallback to random
+                bot_move = random.choice(legal_moves)
         else:
             bot_move = random.choice(legal_moves)
         
-        # Apply bot move
         board.push(bot_move)
         fen_after_bot = board.fen()
         bot_move_uci = bot_move.uci()
@@ -81,7 +88,7 @@ def handle_client(client_socket, addr):
     print(f"[Bot] Connection from {addr}")
     
     try:
-        # Receive request: "fen|player_move\n"
+        # Receive request: "fen|player_move|difficulty\n"
         data = client_socket.recv(4096).decode('utf-8').strip()
         
         if not data:
@@ -99,12 +106,15 @@ def handle_client(client_socket, addr):
         
         fen = parts[0]
         player_move = parts[1] if len(parts) > 1 else ""
+        difficulty = parts[2] if len(parts) > 2 else "easy"
         
         # Calculate bot move
-        fen_after_player, bot_move, fen_after_bot = calculate_bot_move(fen, player_move)
+        fen_after_player, bot_move, fen_after_bot = calculate_bot_move(fen, player_move, difficulty)
         
         if not bot_move:
-            client_socket.sendall(b"ERROR|Failed to calculate move\n")
+            # Always return 3 fields for error, so C server can parse
+            response = f"{fen_after_player or fen}|ERROR|{fen_after_player or fen}\n"
+            client_socket.sendall(response.encode('utf-8'))
             return
         
         # Send response: "fen_after_player|bot_move|fen_after_bot\n"

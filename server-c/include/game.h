@@ -120,6 +120,7 @@ typedef struct GameMatch {
     int draw_requester_id;  // ID of player who requested draw (0 if none)
     int rematch_id;         // ID of new match if rematch accepted (0 if none)
     pthread_mutex_t lock;
+    char bot_difficulty[16]; // Difficulty for bot games ("easy", "hard", etc.)
 } GameMatch;
 
 // Game manager
@@ -169,7 +170,7 @@ PlayerColor get_piece_color(char piece);
 // ============ GAME MANAGER ============
 void game_manager_init(GameManager *manager);
 GameMatch* game_manager_create_match(GameManager *manager, Player white, Player black, PGconn *db);
-GameMatch* game_manager_create_bot_match(GameManager *manager, Player white, Player black, PGconn *db);
+GameMatch* game_manager_create_bot_match(GameManager *manager, Player white, Player black, PGconn *db, const char *difficulty);
 GameMatch* game_manager_find_match(GameManager *manager, int match_id);
 GameMatch* game_manager_find_match_by_player(GameManager *manager, int socket_fd);
 void game_manager_remove_match(GameManager *manager, int match_id);

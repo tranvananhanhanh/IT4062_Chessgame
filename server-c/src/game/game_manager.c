@@ -64,7 +64,7 @@ GameMatch* game_manager_create_match(GameManager *manager, Player white, Player 
     return match;
 }
 
-GameMatch* game_manager_create_bot_match(GameManager *manager, Player white, Player black, PGconn *db) {
+GameMatch* game_manager_create_bot_match(GameManager *manager, Player white, Player black, PGconn *db, const char *difficulty) {
     pthread_mutex_lock(&manager->lock);
     
     if (manager->match_count >= MAX_MATCHES) {
@@ -94,6 +94,8 @@ GameMatch* game_manager_create_bot_match(GameManager *manager, Player white, Pla
     
     chess_board_init(&match->board);
     pthread_mutex_init(&match->lock, NULL);
+    strncpy(match->bot_difficulty, difficulty, sizeof(match->bot_difficulty)-1);
+    match->bot_difficulty[sizeof(match->bot_difficulty)-1] = '\0';
     
     // Add to manager
     manager->matches[manager->match_count] = match;
@@ -104,8 +106,8 @@ GameMatch* game_manager_create_bot_match(GameManager *manager, Player white, Pla
     
     pthread_mutex_unlock(&manager->lock);
     
-    printf("[Game Manager] Created bot match %d: %s vs %s\n", 
-           match_id, white.username, black.username);
+    printf("[Game Manager] Created bot match %d: %s vs %s (difficulty: %s)\n", 
+           match_id, white.username, black.username, difficulty);
     
     return match;
 }
