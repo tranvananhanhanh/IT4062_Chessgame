@@ -15,6 +15,7 @@ ClientSession* client_session_create(int socket_fd) {
     session->user_id = 0;
     memset(session->username, 0, sizeof(session->username));
     session->current_match = NULL;
+    session->is_bot_mode = 0; // Khởi tạo mặc định là 0
     
     return session;
 }
@@ -26,6 +27,12 @@ void client_session_destroy(ClientSession *session) {
 }
 
 void client_session_handle_disconnect(ClientSession *session) {
+    // Nếu là session bot mode, KHÔNG làm gì cả (giữ kết nối)
+    if (session && session->is_bot_mode) {
+        printf("[Session] Bot mode: giữ kết nối cho user %s\n", session->username);
+        return;
+    }
+
     if (session->current_match != NULL) {
         pthread_mutex_lock(&session->current_match->lock);
         

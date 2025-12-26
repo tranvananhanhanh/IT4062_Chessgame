@@ -56,7 +56,7 @@ void protocol_handle_command(ClientSession *session, const char *buffer, PGconn 
     } else if (strcmp(command, "LOGOUT") == 0) {
         handle_logout(session);
     } else if (strcmp(command, "REGISTER") == 0) {
-        handle_register(session, param1, param2, param3, db);
+        handle_register_validate(session, num_params, param1, param2, param3, db);
     } else if (strcmp(command, "REGISTER_VALIDATE") == 0) {
         handle_register_validate(session, num_params, param1, param2, param3, db);
     }
@@ -84,8 +84,10 @@ void protocol_handle_command(ClientSession *session, const char *buffer, PGconn 
     }
     // Bot
     else if (strcmp(command, "MODE_BOT") == 0) {
-        handle_mode_bot(session, param1, db);
+        // MODE_BOT|user_id|difficulty
+        handle_mode_bot(session, param1, param2, db);
     } else if (strcmp(command, "BOT_MOVE") == 0) {
+        // BOT_MOVE|match_id|player_move|difficulty
         handle_bot_move(session, num_params, param1, param2, param3, db);
     }
     // Friend

@@ -37,6 +37,7 @@ void handle_friend_request(ClientSession *session, int num_params, char *param1,
         if (PQresultStatus(insert_res) == PGRES_COMMAND_OK) {
             char response[] = "FRIEND_REQUESTED\n";
             send(session->socket_fd, response, strlen(response), 0);
+            printf("[Server] Send to client %d: %s", session->socket_fd, response);
         } else {
             char error[] = "ERROR|Failed to send friend request\n";
             send(session->socket_fd, error, strlen(error), 0);
@@ -65,6 +66,7 @@ void handle_friend_accept(ClientSession *session, int num_params, char *param1, 
             PQexec(db, insert_query);
             char response[] = "FRIEND_ACCEPTED\n";
             send(session->socket_fd, response, strlen(response), 0);
+            printf("[Server] Send to client %d: %s", session->socket_fd, response);
         } else {
             char error[] = "ERROR|No pending request found\n";
             send(session->socket_fd, error, strlen(error), 0);
@@ -86,6 +88,7 @@ void handle_friend_decline(ClientSession *session, int num_params, char *param1,
         if (PQresultStatus(update_res) == PGRES_COMMAND_OK && atoi(PQcmdTuples(update_res)) > 0) {
             char response[] = "FRIEND_DECLINED\n";
             send(session->socket_fd, response, strlen(response), 0);
+            printf("[Server] Send to client %d: %s", session->socket_fd, response);
         } else {
             char error[] = "ERROR|No pending request found\n";
             send(session->socket_fd, error, strlen(error), 0);
@@ -111,6 +114,7 @@ void handle_friend_list(ClientSession *session, int num_params, char *param1, PG
             }
             strcat(response, "\n");
             send(session->socket_fd, response, strlen(response), 0);
+            printf("[Server] Send to client %d: %s", session->socket_fd, response);
         } else {
             char error[] = "ERROR|Failed to get friend list\n";
             send(session->socket_fd, error, strlen(error), 0);
@@ -136,6 +140,7 @@ void handle_friend_requests(ClientSession *session, int num_params, char *param1
             }
             strcat(response, "\n");
             send(session->socket_fd, response, strlen(response), 0);
+            printf("[Server] Send to client %d: %s", session->socket_fd, response);
         } else {
             char error[] = "ERROR|Failed to get friend requests\n";
             send(session->socket_fd, error, strlen(error), 0);
