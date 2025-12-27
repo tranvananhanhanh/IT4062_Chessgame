@@ -10,6 +10,7 @@
 #include "timer.h"
 #include "elo_leaderboard.h"
 #include "elo_history.h"
+#include "chat.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -59,6 +60,9 @@ void protocol_handle_command(ClientSession *session, const char *buffer, PGconn 
         handle_register_validate(session, num_params, param1, param2, param3, db);
     } else if (strcmp(command, "REGISTER_VALIDATE") == 0) {
         handle_register_validate(session, num_params, param1, param2, param3, db);
+    } else if (strcmp(command, "CHAT") == 0) {
+        // CHAT|to_user|message
+        handle_chat(session, num_params, param1, param2);
     }
     // Match/game logic
     else if (strcmp(command, "CREATE_MATCH") == 0) {

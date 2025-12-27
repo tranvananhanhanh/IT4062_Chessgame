@@ -3,6 +3,7 @@
 #include "protocol_handler.h"
 #include "game.h"
 #include "history.h"
+#include "online_users.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,7 @@
 // External global variables
 extern GameManager game_manager;
 extern PGconn *db_conn;
+OnlineUsers online_users;
 
 // Client handler thread
 void* client_handler(void *arg) {
@@ -70,6 +72,9 @@ int server_init(PGconn **db_connection) {
     // Initialize game manager
     game_manager_init(&game_manager);
     printf("[Server] Game manager initialized\n");
+
+    pthread_mutex_init(&online_users.lock, NULL);
+    online_users.count = 0;
     
     return 0;
 }

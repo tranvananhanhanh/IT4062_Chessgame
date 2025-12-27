@@ -69,38 +69,36 @@ class FriendUI:
         friend_scroll.pack(side="right", fill="y")
         self.friends_listbox.config(yscrollcommand=friend_scroll.set)
 
-        # ================= RIGHT: FRIEND REQUESTS =================
-        right = tk.LabelFrame(
-            content,
-            text="♜ Lời mời kết bạn",
-            font=("Helvetica", 14, "bold"),
-            bg="#eef6ff",
-            fg="#1f2937",
-            padx=10,
-            pady=10
-        )
-        right.grid(row=0, column=1, sticky="nsew")
+        self.friends_listbox.bind("<Double-Button-1>", self.on_friend_double_click)
 
-        canvas = tk.Canvas(
-            right,
-            bg="#ffffff",
-            highlightthickness=1,
-            highlightbackground="#93c5fd"
-        )
-        canvas.pack(side="left", fill="both", expand=True)
+        # ================= RIGHT: FRIEND REQUESTS + CHAT PANEL =================
+        self.right_panel = tk.Frame(content, bg="#eef6ff")
+        self.right_panel.grid(row=0, column=1, sticky="nsew")
+        self.right_panel.rowconfigure(0, weight=1)
+        self.right_panel.columnconfigure(0, weight=1)
 
-        scrollbar = ttk.Scrollbar(right, orient="vertical", command=canvas.yview)
-        scrollbar.pack(side="right", fill="y")
+        # Chat display (ẩn mặc định)
+        self.chat_display = tk.Text(self.right_panel, state="disabled", height=12, bg="#fff", fg="#222", font=("Helvetica", 12))
+        self.chat_display.grid(row=0, column=0, sticky="nsew", padx=10, pady=(10, 0))
+        self.chat_display.grid_remove()
 
-        canvas.configure(yscrollcommand=scrollbar.set)
+        # Entry + send (ẩn mặc định)
+        self.entry_frame = tk.Frame(self.right_panel, bg="#eef6ff")
+        self.entry = tk.Entry(self.entry_frame, font=("Helvetica", 12))
+        self.entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.send_btn = tk.Button(self.entry_frame, text="Gửi", font=("Helvetica", 11, "bold"), command=self.send_chat_to_current)
+        self.send_btn.pack(side="right")
+        self.entry_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=10)
+        self.entry_frame.grid_remove()
 
-        self.requests_container = tk.Frame(canvas, bg="#ffffff")
-        canvas.create_window((0, 0), window=self.requests_container, anchor="nw")
+        # Friend requests container giữ nguyên
+        self.requests_container = tk.Frame(self.right_panel, bg="#ffffff")
+        self.requests_container.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
 
-        self.requests_container.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+        self.current_chat_id = None
+        self._chat_history = {}  # id -> list of messages
+        self.id_to_name = {}  # user_id (str) -> username
+        self.name_to_id = {}  # username -> user_id (str)
 
         # ================= ADD FRIEND =================
         add_frame = tk.Frame(container, bg="#fdf2f8")
@@ -144,6 +142,7 @@ class FriendUI:
         self.client.send(f"FRIEND_REQUESTS|{self.user_id}")
 
     def handle_message(self, msg):
+        print("[DEBUG] FriendUI received:", repr(msg))  # Debug print for all incoming messages
         # Nếu frame đã destroy thì bỏ qua, tránh lỗi callback sau khi quay lại
         if not hasattr(self, 'friends_listbox') or not self.friends_listbox.winfo_exists():
             return
@@ -172,19 +171,35 @@ class FriendUI:
             else:
                 # Ẩn debug, chỉ hiện lỗi ngắn gọn
                 self.status_label.config(text="Lỗi: " + msg.split("|")[-1].split("[")[0])
+        elif msg.startswith("CHAT_FROM|"):
+            parts = msg.strip().split("|", 2)
+            print("[DEBUG] CHAT_FROM parts:", parts)  # Debug print for chat message parts
+            if len(parts) == 3:
+                from_id, content = parts[1], parts[2]
+                # from_id bây giờ là user_id (server đã sửa)
+                if from_id not in self._chat_history:
+                    self._chat_history[from_id] = []
+                self._chat_history[from_id].append(f"{from_id}: {content}\n")
+                if self.current_chat_id == from_id:
+                    self.chat_display.config(state="normal")
+                    self.chat_display.insert(tk.END, f"{from_id}: {content}\n")
+                    self.chat_display.config(state="disabled")
 
     # ================= RENDER =================
 
     def render_friend_list(self, msg):
         self.friends_listbox.delete(0, tk.END)
         payload = msg.split("|", 1)[1]
-
+        # Giả sử server trả về dạng: '6,1,10,15,16' (user_id), không có username
         ids = [i.strip() for i in payload.split(",") if i.strip() and i.strip() != str(self.user_id)]
-
+        # TODO: Nếu server trả về cả username, hãy parse và lưu mapping ở đây
+        # Ví dụ: '6:emm,1:abc' => id: 6, name: emm
+        # Hiện tại chỉ có user_id, nên mapping sẽ không đầy đủ
+        self.id_to_name = {i: i for i in ids}  # fallback: id->id
+        self.name_to_id = {i: i for i in ids}
         if not ids:
             self.friends_listbox.insert(tk.END, "♟️ Chưa có bạn bè")
             return
-
         for fid in ids:
             self.friends_listbox.insert(tk.END, f"♞ Player ID {fid}")
 
@@ -255,3 +270,39 @@ class FriendUI:
         else:
             self.master.state("zoomed")
         self.on_back()
+
+    def on_friend_double_click(self, event):
+        selection = self.friends_listbox.curselection()
+        if not selection:
+            return
+        friend_text = self.friends_listbox.get(selection[0])
+        # Extract friend id from text (format: '♞ Player ID {fid}')
+        if "Player ID" in friend_text:
+            fid = friend_text.split("Player ID")[-1].strip()
+            self.show_chat_panel(fid)
+
+    def show_chat_panel(self, friend_id):
+        self.current_chat_id = friend_id
+        self.chat_display.grid()
+        self.entry_frame.grid()
+        self.entry.delete(0, tk.END)
+        # Hiển thị lịch sử chat nếu có
+        self.chat_display.config(state="normal")
+        self.chat_display.delete(1.0, tk.END)
+        if friend_id in self._chat_history:
+            for msg in self._chat_history[friend_id]:
+                self.chat_display.insert(tk.END, msg)
+        self.chat_display.config(state="disabled")
+        self.entry.focus_set()
+
+    def send_chat_to_current(self):
+        msg = self.entry.get().strip()
+        if msg and self.current_chat_id:
+            self.client.send(f"CHAT|{self.current_chat_id}|{msg}\n")
+            self.chat_display.config(state="normal")
+            self.chat_display.insert(tk.END, f"Bạn: {msg}\n")
+            self.chat_display.config(state="disabled")
+            if self.current_chat_id not in self._chat_history:
+                self._chat_history[self.current_chat_id] = []
+            self._chat_history[self.current_chat_id].append(f"Bạn: {msg}\n")
+            self.entry.delete(0, tk.END)

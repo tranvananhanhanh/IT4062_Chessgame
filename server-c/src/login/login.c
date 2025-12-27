@@ -1,5 +1,6 @@
 #include "login.h"
 #include "database.h"
+#include "online_users.h"
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -36,6 +37,10 @@ void handle_login(ClientSession *session, char *param1, char *param2, PGconn *db
 
     session->user_id = user_id;
     strncpy(session->username, name, sizeof(session->username) - 1);
+
+    // Add user to online_users
+    extern OnlineUsers online_users;
+    online_users_add(&online_users, user_id, name, session->socket_fd);
 
     char response[256];
     snprintf(response, sizeof(response), "LOGIN_SUCCESS|%d|%s|%s\n", user_id, name, elo);

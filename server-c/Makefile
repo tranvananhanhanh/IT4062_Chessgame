@@ -43,7 +43,8 @@ CONTROL_SRCS = $(CONTROL_DIR)/control.c
 
 SESSION_SRCS = $(SESSION_DIR)/client_session.c
 
-SERVER_SRCS = $(SERVER_DIR)/server_core.c
+SERVER_SRCS = $(SERVER_DIR)/server_core.c \
+              $(SERVER_DIR)/online_users.c
 
 DB_SRCS = $(DB_DIR)/db_connection.c \
           $(DB_DIR)/db_matches.c \
@@ -62,12 +63,14 @@ LOGIN_SRCS = $(LOGIN_DIR)/login.c $(LOGIN_DIR)/logout.c $(LOGIN_DIR)/resgister.c
 MATCHMAKING_DIR = $(SRC_DIR)/matchmaking
 MATCHMAKING_SRCS = $(MATCHMAKING_DIR)/matchmaking.c
 
+CHAT_SRCS = $(SRC_DIR)/chat/chat.c
+
 MAIN_SRC = main.c
 
 ALL_SRCS = $(MAIN_SRC) $(GAME_SRCS) $(TIMER_SRCS) $(HISTORY_SRCS) $(PROTOCOL_SRCS) \
            $(MATCH_SRCS) $(BOT_SRCS) $(FRIEND_SRCS) $(CONTROL_SRCS) \
            $(SESSION_SRCS) $(SERVER_SRCS) $(DB_SRCS) $(ELO_SRCS) \
-           $(LOGIN_SRCS) $(MATCHMAKING_SRCS)
+           $(LOGIN_SRCS) $(MATCHMAKING_SRCS) $(CHAT_SRCS)
 
 # Object files
 OBJS = $(ALL_SRCS:%.c=$(BUILD_DIR)/%.o)
@@ -96,6 +99,7 @@ directories:
 	@mkdir -p $(BUILD_DIR)/src/elo
 	@mkdir -p $(BUILD_DIR)/src/login
 	@mkdir -p $(BUILD_DIR)/src/matchmaking
+	@mkdir -p $(BUILD_DIR)/src/chat
 
 	@mkdir -p $(BIN_DIR)
 
