@@ -23,6 +23,20 @@ void handle_login(ClientSession *session, char *param1, char *param2, PGconn *db
         return;
     }
 
+    // Check if user is already logged in
+    extern OnlineUsers online_users;
+    pthread_mutex_lock(&online_users.lock);
+    for (int i = 0; i < online_users.count; ++i) {
+        if (online_users.entries[i].user_id == user_id) {
+            pthread_mutex_unlock(&online_users.lock);
+            char error[] = "ERROR|User already logged in\n";
+            send(session->socket_fd, error, strlen(error), 0);
+            printf("[Login] User %d already logged in, rejecting duplicate login\n", user_id);
+            return;
+        }
+    }
+    pthread_mutex_unlock(&online_users.lock);
+
     char user_info[256];
     if (!db_get_user_info(db, user_id, user_info, sizeof(user_info))) {
         char error[] = "ERROR|Failed to load user info\n";
@@ -39,8 +53,14 @@ void handle_login(ClientSession *session, char *param1, char *param2, PGconn *db
     strncpy(session->username, name, sizeof(session->username) - 1);
 
     // Add user to online_users
-    extern OnlineUsers online_users;
     online_users_add(&online_users, user_id, name, session->socket_fd);
+    
+    // Update user state to online in database
+    char update_query[256];
+    snprintf(update_query, sizeof(update_query), 
+        "UPDATE users SET state = 'online' WHERE user_id = %d", user_id);
+    PGresult *res = PQexec(db, update_query);
+    PQclear(res);
 
     char response[256];
     snprintf(response, sizeof(response), "LOGIN_SUCCESS|%d|%s|%s\n", user_id, name, elo);

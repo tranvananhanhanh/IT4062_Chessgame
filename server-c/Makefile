@@ -1,8 +1,10 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -g -Iinclude -I/usr/local/Cellar/postgresql@14/14.11_1/include/postgresql@14 -pthread
-LDFLAGS = -L/usr/local/Cellar/postgresql@14/14.11_1/lib/postgresql@14 -lpq -lpthread -lm
-#CFLAGS = -Wall -Wextra -g -Iinclude -I/usr/include/postgresql -pthread
-#LDFLAGS = -L/usr/lib/x86_64-linux-gnu -lpq -lpthread -lm
+# macOS (Homebrew) - comment out if on Linux
+#CFLAGS = -Wall -Wextra -g -Iinclude -I/usr/local/Cellar/postgresql@14/14.11_1/include/postgresql@14 -pthread
+#LDFLAGS = -L/usr/local/Cellar/postgresql@14/14.11_1/lib/postgresql@14 -lpq -lpthread -lm
+# Linux - uncomment if on Linux
+CFLAGS = -Wall -Wextra -g -Iinclude -I/usr/include/postgresql -pthread
+LDFLAGS = -L/usr/lib/x86_64-linux-gnu -lpq -lpthread -lm
 
 # Directories
 SRC_DIR = src

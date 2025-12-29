@@ -101,15 +101,22 @@ void handle_friend_list(ClientSession *session, int num_params, char *param1, PG
     // FRIEND_LIST|user_id
     if (num_params >= 2) {
         int user_id = atoi(param1);
-        char query[256];
+        char query[512];
         snprintf(query, sizeof(query),
-            "SELECT friend_id FROM friendship WHERE user_id=%d AND status='accepted';",
+            "SELECT u.user_id, u.name, u.state FROM users u "
+            "INNER JOIN friendship f ON u.user_id = f.friend_id "
+            "WHERE f.user_id=%d AND f.status='accepted';",
             user_id);
         PGresult *res = PQexec(db, query);
         if (PQresultStatus(res) == PGRES_TUPLES_OK) {
-            char response[1024] = "FRIEND_LIST|";
+            char response[2048] = "FRIEND_LIST|";
             for (int i = 0; i < PQntuples(res); i++) {
-                strcat(response, PQgetvalue(res, i, 0));
+                char *fid = PQgetvalue(res, i, 0);
+                char *fname = PQgetvalue(res, i, 1);
+                char *fstate = PQgetvalue(res, i, 2);
+                char entry[128];
+                snprintf(entry, sizeof(entry), "%s:%s:%s", fid, fname, fstate);
+                strcat(response, entry);
                 if (i < PQntuples(res) - 1) strcat(response, ",");
             }
             strcat(response, "\n");
@@ -127,15 +134,21 @@ void handle_friend_requests(ClientSession *session, int num_params, char *param1
     // FRIEND_REQUESTS|user_id
     if (num_params >= 2) {
         int user_id = atoi(param1);
-        char query[256];
+        char query[512];
         snprintf(query, sizeof(query),
-            "SELECT user_id FROM friendship WHERE friend_id=%d AND status='pending';",
+            "SELECT u.user_id, u.name FROM users u "
+            "INNER JOIN friendship f ON u.user_id = f.user_id "
+            "WHERE f.friend_id=%d AND f.status='pending';",
             user_id);
         PGresult *res = PQexec(db, query);
         if (PQresultStatus(res) == PGRES_TUPLES_OK) {
-            char response[1024] = "FRIEND_REQUESTS|";
+            char response[2048] = "FRIEND_REQUESTS|";
             for (int i = 0; i < PQntuples(res); i++) {
-                strcat(response, PQgetvalue(res, i, 0));
+                char *fid = PQgetvalue(res, i, 0);
+                char *fname = PQgetvalue(res, i, 1);
+                char entry[128];
+                snprintf(entry, sizeof(entry), "%s:%s", fid, fname);
+                strcat(response, entry);
                 if (i < PQntuples(res) - 1) strcat(response, ",");
             }
             strcat(response, "\n");

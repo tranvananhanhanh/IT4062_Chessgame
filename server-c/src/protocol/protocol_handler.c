@@ -137,7 +137,11 @@ void protocol_handle_command(ClientSession *session, const char *buffer, PGconn 
         handle_rematch_decline(session, num_params, param1, param2, db);
     }
     // Matchmaking
-    else if (strcmp(command, "MMJOIN") == 0 && num_params >= 4) {
+    else if (strcmp(command, "JOIN_MATCHMAKING") == 0 && num_params >= 2) {
+        handle_join_matchmaking(session, param1, db);
+    } else if (strcmp(command, "LEAVE_MATCHMAKING") == 0 && num_params >= 2) {
+        handle_leave_matchmaking(session, param1, db);
+    } else if (strcmp(command, "MMJOIN") == 0 && num_params >= 4) {
         char payload[256];
         snprintf(payload, sizeof(payload), "%s %s %s", param1, param2, param3);
         char resp[256];

@@ -12,7 +12,10 @@ class PollClient:
         self.send_queue = []
 
     def send(self, msg: str):
-        self.send_queue.append(msg.encode() + b'\n')
+        # Don't add \n if message already has it
+        if not msg.endswith('\n'):
+            msg = msg + '\n'
+        self.send_queue.append(msg.encode())
 
     def poll(self, timeout=0):
         events = self.poller.poll(timeout)

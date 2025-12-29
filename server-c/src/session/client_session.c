@@ -1,4 +1,5 @@
 #include "client_session.h"
+#include "online_users.h"
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
@@ -31,6 +32,14 @@ void client_session_handle_disconnect(ClientSession *session) {
     if (session && session->is_bot_mode) {
         printf("[Session] Bot mode: giữ kết nối cho user %s\n", session->username);
         return;
+    }
+
+    // ✅ Remove user from online_users FIRST
+    if (session->user_id > 0) {
+        extern OnlineUsers online_users;
+        online_users_remove(&online_users, session->user_id);
+        printf("[Session] Removed user %d (%s) from online users\n", 
+               session->user_id, session->username);
     }
 
     if (session->current_match != NULL) {
