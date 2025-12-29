@@ -12,8 +12,10 @@ class FriendUI:
         import sys
         if sys.platform == "darwin":
             self.master.attributes("-fullscreen", True)
-        else:
+        elif sys.platform == "win32":
             self.master.state("zoomed")
+        else:
+            self.master.attributes('-zoomed', True)
         # ❌ KHÔNG dùng geometry()
         # self.master.geometry("920x580")
         self.master.configure(bg="#fdf2f8")
@@ -86,6 +88,7 @@ class FriendUI:
         self.entry_frame = tk.Frame(self.right_panel, bg="#eef6ff")
         self.entry = tk.Entry(self.entry_frame, font=("Helvetica", 12))
         self.entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.entry.bind("<Return>", lambda e: self.send_chat_to_current())  # Press Enter to send
         self.send_btn = tk.Button(self.entry_frame, text="Gửi", font=("Helvetica", 11, "bold"), command=self.send_chat_to_current)
         self.send_btn.pack(side="right")
         self.entry_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=10)
@@ -176,41 +179,78 @@ class FriendUI:
             print("[DEBUG] CHAT_FROM parts:", parts)  # Debug print for chat message parts
             if len(parts) == 3:
                 from_id, content = parts[1], parts[2]
+                # Get friend name for better display
+                friend_name = self.id_to_name.get(from_id, f"User {from_id}")
+                
                 # from_id bây giờ là user_id (server đã sửa)
                 if from_id not in self._chat_history:
                     self._chat_history[from_id] = []
-                self._chat_history[from_id].append(f"{from_id}: {content}\n")
+                self._chat_history[from_id].append(f"{friend_name}: {content}\n")
                 if self.current_chat_id == from_id:
                     self.chat_display.config(state="normal")
-                    self.chat_display.insert(tk.END, f"{from_id}: {content}\n")
+                    self.chat_display.insert(tk.END, f"{friend_name}: {content}\n")
                     self.chat_display.config(state="disabled")
+                    self.chat_display.see(tk.END)  # Auto-scroll to bottom
 
     # ================= RENDER =================
 
     def render_friend_list(self, msg):
         self.friends_listbox.delete(0, tk.END)
         payload = msg.split("|", 1)[1]
-        # Giả sử server trả về dạng: '6,1,10,15,16' (user_id), không có username
-        ids = [i.strip() for i in payload.split(",") if i.strip() and i.strip() != str(self.user_id)]
-        # TODO: Nếu server trả về cả username, hãy parse và lưu mapping ở đây
-        # Ví dụ: '6:emm,1:abc' => id: 6, name: emm
-        # Hiện tại chỉ có user_id, nên mapping sẽ không đầy đủ
-        self.id_to_name = {i: i for i in ids}  # fallback: id->id
-        self.name_to_id = {i: i for i in ids}
-        if not ids:
+        # Server trả về: 'id:name:state,id:name:state,...'
+        if not payload.strip():
             self.friends_listbox.insert(tk.END, "♟️ Chưa có bạn bè")
             return
-        for fid in ids:
-            self.friends_listbox.insert(tk.END, f"♞ Player ID {fid}")
+        
+        entries = [e.strip() for e in payload.split(",") if e.strip()]
+        if not entries:
+            self.friends_listbox.insert(tk.END, "♟️ Chưa có bạn bè")
+            return
+        
+        for entry in entries:
+            parts = entry.split(":")
+            if len(parts) >= 3:
+                fid, fname, fstate = parts[0], parts[1], parts[2]
+                self.id_to_name[fid] = fname
+                self.name_to_id[fname] = fid
+                
+                # Hiển thị state với màu
+                if fstate == "online":
+                    color_dot = "🟢"  # Xanh
+                elif fstate == "ingame":
+                    color_dot = "🔴"  # Đỏ
+                else:  # offline
+                    color_dot = "⚫"  # Đen
+                
+                self.friends_listbox.insert(tk.END, f"{color_dot} {fname} (ID: {fid})")
+            elif len(parts) >= 2:
+                fid, fname = parts[0], parts[1]
+                self.id_to_name[fid] = fname
+                self.name_to_id[fname] = fid
+                self.friends_listbox.insert(tk.END, f"♞ {fname} (ID: {fid})")
+            else:
+                fid = parts[0]
+                self.id_to_name[fid] = fid
+                self.name_to_id[fid] = fid
+                self.friends_listbox.insert(tk.END, f"♞ Player ID {fid}")
 
     def render_friend_requests(self, msg):
         for w in self.requests_container.winfo_children():
             w.destroy()
 
         payload = msg.split("|", 1)[1]
-        ids = [i.strip() for i in payload.split(",") if i.strip()]
-
-        if not ids:
+        # Server trả về: 'id:name,id:name,...'
+        if not payload.strip():
+            tk.Label(
+                self.requests_container,
+                text="♔ Không có lời mời nào",
+                bg="#ffffff",
+                fg="#6b7280"
+            ).pack(anchor="w", pady=6)
+            return
+        
+        entries = [e.strip() for e in payload.split(",") if e.strip()]
+        if not entries:
             tk.Label(
                 self.requests_container,
                 text="♔ Không có lời mời nào",
@@ -219,13 +259,21 @@ class FriendUI:
             ).pack(anchor="w", pady=6)
             return
 
-        for fid in ids:
+        for entry in entries:
+            parts = entry.split(":")
+            if len(parts) >= 2:
+                fid, fname = parts[0], parts[1]
+                display_name = f"{fname} (ID: {fid})"
+            else:
+                fid = entry
+                display_name = f"Player ID {fid}"
+            
             row = tk.Frame(self.requests_container, bg="#ffffff", pady=6)
             row.pack(fill="x")
 
             tk.Label(
                 row,
-                text=f"♟️ Player ID {fid}",
+                text=f"♟️ {display_name}",
                 font=("Helvetica", 12, "bold"),
                 bg="#ffffff",
                 fg="#1f2937"
@@ -267,8 +315,10 @@ class FriendUI:
         import sys
         if sys.platform == "darwin":
             self.master.attributes("-fullscreen", True)
-        else:
+        elif sys.platform == "win32":
             self.master.state("zoomed")
+        else:
+            self.master.attributes('-zoomed', True)
         self.on_back()
 
     def on_friend_double_click(self, event):
@@ -276,32 +326,44 @@ class FriendUI:
         if not selection:
             return
         friend_text = self.friends_listbox.get(selection[0])
-        # Extract friend id from text (format: '♞ Player ID {fid}')
-        if "Player ID" in friend_text:
-            fid = friend_text.split("Player ID")[-1].strip()
-            self.show_chat_panel(fid)
+        # Extract friend id from text (format: '{color_dot} {fname} (ID: {fid})')
+        if "(ID:" in friend_text:
+            # Extract the ID part: "... (ID: 123)" -> "123"
+            id_part = friend_text.split("(ID:")[-1].strip().rstrip(")")
+            self.show_chat_panel(id_part)
+        else:
+            print(f"[Friend] Cannot parse friend ID from: {friend_text}")
 
     def show_chat_panel(self, friend_id):
         self.current_chat_id = friend_id
         self.chat_display.grid()
         self.entry_frame.grid()
         self.entry.delete(0, tk.END)
+        
+        # Update chat title with friend name
+        friend_name = self.id_to_name.get(friend_id, f"User {friend_id}")
+        
         # Hiển thị lịch sử chat nếu có
         self.chat_display.config(state="normal")
         self.chat_display.delete(1.0, tk.END)
+        self.chat_display.insert(tk.END, f"=== Chat với {friend_name} ===\n\n")
         if friend_id in self._chat_history:
             for msg in self._chat_history[friend_id]:
                 self.chat_display.insert(tk.END, msg)
         self.chat_display.config(state="disabled")
+        self.chat_display.see(tk.END)  # Scroll to bottom
         self.entry.focus_set()
 
     def send_chat_to_current(self):
         msg = self.entry.get().strip()
         if msg and self.current_chat_id:
-            self.client.send(f"CHAT|{self.current_chat_id}|{msg}\n")
+            # Don't add \n - PollClient will add it automatically
+            self.client.send(f"CHAT|{self.current_chat_id}|{msg}")
+            print(f"[Friend] Sending chat to {self.current_chat_id}: {msg}")
             self.chat_display.config(state="normal")
             self.chat_display.insert(tk.END, f"Bạn: {msg}\n")
             self.chat_display.config(state="disabled")
+            self.chat_display.see(tk.END)  # Auto-scroll to bottom
             if self.current_chat_id not in self._chat_history:
                 self._chat_history[self.current_chat_id] = []
             self._chat_history[self.current_chat_id].append(f"Bạn: {msg}\n")

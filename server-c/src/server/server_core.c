@@ -18,7 +18,7 @@
 // External global variables
 extern GameManager game_manager;
 extern PGconn *db_conn;
-OnlineUsers online_users;
+extern OnlineUsers online_users;
 
 // Client handler thread
 void* client_handler(void *arg) {

@@ -12,8 +12,12 @@ void handle_register(ClientSession *session, char *param1, char *param2, char *p
     const char *email = param3 ? param3 : "";
 
     // Kiểm tra username đã tồn tại chưa
-    char query[256];
-    snprintf(query, sizeof(query), "SELECT user_id FROM users WHERE name = '%s'", username);
+    char query[512];
+    char escaped_username[256];
+    PQescapeStringConn(db, escaped_username, username, strlen(username), NULL);
+    
+    snprintf(query, sizeof(query), "SELECT user_id FROM users WHERE name = '%s'", escaped_username);
+    
     PGresult *res = PQexec(db, query);
     if (PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) > 0) {
         PQclear(res);
@@ -23,10 +27,18 @@ void handle_register(ClientSession *session, char *param1, char *param2, char *p
     }
     PQclear(res);
 
-    // Thêm user mới
+    // Thêm user mới - hash password
+    unsigned long long hashval = simple_hash(password);
+    char hashstr[32];
+    snprintf(hashstr, sizeof(hashstr), "%016llx", hashval);
+    
+    char escaped_email[256];
+    PQescapeStringConn(db, escaped_email, email, strlen(email), NULL);
+    
     snprintf(query, sizeof(query),
         "INSERT INTO users (name, password_hash, email) VALUES ('%s', '%s', '%s') RETURNING user_id",
-        username, password, email);
+        escaped_username, hashstr, escaped_email);
+    
     res = PQexec(db, query);
     if (PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) > 0) {
         int user_id = atoi(PQgetvalue(res, 0, 0));
