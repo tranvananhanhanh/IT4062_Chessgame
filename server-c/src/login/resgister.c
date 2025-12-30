@@ -5,6 +5,9 @@
 #include <sys/socket.h>
 #include <stdlib.h>
 
+// Khai báo prototype cho simple_hash để tránh lỗi implicit declaration
+unsigned long long simple_hash(const char *str);
+
 void handle_register(ClientSession *session, char *param1, char *param2, char *param3, PGconn *db) {
     // param1: username, param2: password, param3: email (optional)
     const char *username = param1;

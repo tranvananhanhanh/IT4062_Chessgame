@@ -119,6 +119,8 @@ typedef struct GameMatch {
     int winner_id;
     int draw_requester_id;  // ID of player who requested draw (0 if none)
     int rematch_id;         // ID of new match if rematch accepted (0 if none)
+    int rematch_requester_id;   // ID người xin rematch
+
     pthread_mutex_t lock;
     char bot_difficulty[16]; // Difficulty for bot games ("easy", "hard", etc.)
 } GameMatch;
