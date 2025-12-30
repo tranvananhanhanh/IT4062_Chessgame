@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox
+from ui.gamecontrol_ui import GameControlUI
 
 class PvPUI:
     def __init__(self, master, match_id, my_color, opponent_name, client, on_back, user_id):
@@ -72,28 +73,20 @@ class PvPUI:
         self.canvas.pack()
         self.canvas.bind("<Button-1>", self.on_click)
         
-        # Right panel - Controls
-        right_panel = tk.Frame(container, bg="#f0f0f0", width=250)
-        right_panel.pack(side="right", fill="y", padx=(0, 20), pady=20)
-        right_panel.pack_propagate(False)
+        # Right panel - Controls (tách ra GameControlUI)
+        self.game_control = GameControlUI(
+            container,
+            self.my_color,
+            self.match_id,
+            self.user_id,
+            self.client,
+            self.back_to_menu
+        )
+        self.game_control.pack(side="right", fill="y", padx=(0, 20), pady=20)
         
-        tk.Label(right_panel, text="Game Controls", 
-                font=("Helvetica", 14, "bold"), bg="#f0f0f0").pack(pady=(0, 20))
-        
-        self.status_label = tk.Label(right_panel, text="Your turn" if self.my_color == "white" else "Opponent's turn",
-                                     font=("Helvetica", 11), bg="#f0f0f0", fg="#2b2b2b", wraplength=220)
-        self.status_label.pack(pady=10)
-        
-        self.move_label = tk.Label(right_panel, text="Last move: -",
-                                   font=("Helvetica", 10), bg="#f0f0f0", wraplength=220)
-        self.move_label.pack(pady=10)
-        
-        tk.Button(right_panel, text="Surrender", font=("Helvetica", 11, "bold"),
-                 width=18, command=self.surrender).pack(pady=10)
-        tk.Button(right_panel, text="Offer Draw", font=("Helvetica", 11, "bold"),
-                 width=18, command=self.offer_draw).pack(pady=10)
-        tk.Button(right_panel, text="Back to Menu", font=("Helvetica", 11, "bold"),
-                 width=18, command=self.back_to_menu).pack(pady=(40, 0))
+        # Liên kết label để cập nhật trạng thái
+        self.status_label = self.game_control.status_label
+        self.move_label = self.game_control.move_label
     
     def draw_board(self):
         self.canvas.delete("all")
@@ -292,8 +285,14 @@ class PvPUI:
         self.on_back()
     
     def handle_message(self, msg):
-        """Handle server messages"""
         msg = msg.strip()
+        # Only print debug if not error
+        if msg.startswith("ERROR"):
+            # Extract error message only (remove protocol prefix)
+            err = msg.split('|', 1)[1] if '|' in msg else msg
+            self.status_label.config(text=err, fg="red")
+            return
+        
         print(f"[PvP] Received: {msg}")
         
         if msg.startswith("MOVE_SUCCESS"):
@@ -369,13 +368,6 @@ class PvPUI:
                 result = parts[2]
                 self.status_label.config(text=f"Game Over: {result}", fg="red")
                 messagebox.showinfo("Game Over", f"Result: {result}")
-        elif msg.startswith("ERROR"):
-            # Handle all ERROR messages
-            print(f"[PvP ERROR] {msg}")
-            self.status_label.config(text=msg, fg="red")
-            # Reset turn state if move was rejected
-            if "turn" in msg.lower():
-                self.is_my_turn = False
     
     def update_board_from_fen(self, fen):
         """Update board state from FEN string"""

@@ -108,7 +108,6 @@ class ChessApp:
         self.create_button(frame, "Tìm trận (Matchmaking)", self.start_matchmaking).pack(pady=5)
         self.create_button(frame, "Kết bạn", self.friend_request_frame).pack(pady=5)
         self.create_button(frame, "Chơi với Bot", self.start_bot_game).pack(pady=5)
-        self.create_button(frame, "Game Control", self.game_control_frame).pack(pady=5)
         self.create_button(frame, "Xem lịch sử (History)", self.show_history).pack(pady=5)
         self.create_button(frame, "Logout", self.logout).pack(pady=(20, 0))
 
@@ -118,21 +117,7 @@ class ChessApp:
         self.friend_ui = FriendUI(self.master, self.user_id, self.main_menu, self.client)
         self.add_listener(self.friend_ui)
 
-    # ===== Game Control =====
-    def game_control_frame(self):
-        self.clear()
-        frame = tk.Frame(self.master, padx=20, pady=20)
-        frame.pack(expand=True)
-        self.current_frame = frame
 
-        tk.Label(frame, text="Game Control", font=FONT_TITLE).pack(pady=(0, 20))
-
-        self.create_button(frame, "Pause", lambda: self.send_game_control("PAUSE")).pack(pady=4)
-        self.create_button(frame, "Resume", lambda: self.send_game_control("RESUME")).pack(pady=4)
-        self.create_button(frame, "Draw", lambda: self.send_game_control("DRAW")).pack(pady=4)
-        self.create_button(frame, "Surrender", lambda: self.send_game_control("SURRENDER")).pack(pady=4)
-
-        self.create_button(frame, "Quay lại", self.main_menu).pack(pady=(15, 0))
 
     # ===== Network actions =====
     def send_friend_request(self):
@@ -345,4 +330,3 @@ class ChessApp:
         self.history_ui = HistoryUI(self.master, self.user_id, self.client, self.main_menu)
         self.current_frame = self.history_ui.frame
         self.master.update_idletasks()
-
