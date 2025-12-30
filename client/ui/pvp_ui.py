@@ -87,7 +87,24 @@ class PvPUI:
         # Liên kết label để cập nhật trạng thái
         self.status_label = self.game_control.status_label
         self.move_label = self.game_control.move_label
-    
+    def reset_ui(self):
+        # Destroy old frame
+        self.frame.destroy()
+        
+        # Tạo lại frame mới
+        self.frame = tk.Frame(self.master)
+        self.frame.pack(fill="both", expand=True)
+        
+        # Reset board state
+        self.board_state = self.init_board()
+        self.selected = None
+        self.last_move = None
+        self.is_my_turn = (self.my_color == "white")
+        
+        # Tạo UI lại
+        self.setup_ui()
+        self.draw_board()
+
     def draw_board(self):
         self.canvas.delete("all")
         cell_size = 75
@@ -284,91 +301,173 @@ class PvPUI:
         self.frame.destroy()
         self.on_back()
     
+
     def handle_message(self, msg):
-        msg = msg.strip()
-        # Only print debug if not error
-        if msg.startswith("ERROR"):
-            # Extract error message only (remove protocol prefix)
-            err = msg.split('|', 1)[1] if '|' in msg else msg
-            self.status_label.config(text=err, fg="red")
+        if not self.frame.winfo_exists():
             return
-        
+
+        msg = msg.strip()
         print(f"[PvP] Received: {msg}")
-        
+
+        # ================= ERROR =================
+        if msg.startswith("ERROR"):
+            err = msg.split('|', 1)[1] if '|' in msg else msg
+            if self.status_label.winfo_exists():
+                self.status_label.config(text=err, fg="red")
+            return
+
+        # ================= MOVES =================
         if msg.startswith("MOVE_SUCCESS"):
-            # MOVE_SUCCESS|move|fen
+            _, move, fen = msg.split('|', 2)
+            self.last_move = move
+            self.move_label.config(text=f"Your move: {move}")
+            self.update_board_from_fen(fen)
+            self.is_my_turn = False
+            self.status_label.config(text="Opponent's turn", fg="#2b2b2b")
+            self.draw_board()
+            return
+
+        if msg.startswith("OPPONENT_MOVE"):
+            _, move, fen = msg.split('|', 2)
+            self.last_move = move
+            self.move_label.config(text=f"Opponent: {move}")
+            self.update_board_from_fen(fen)
+            self.is_my_turn = True
+            self.status_label.config(text="Your turn", fg="green")
+            self.draw_board()
+            return
+
+        # ================= PAUSE / RESUME =================
+        if msg == "GAME_PAUSED_BY_OPPONENT":
+            self.is_my_turn = False
+            self.game_control.game_state = GameControlUI.STATE_PAUSED_BY_OPPONENT
+            self.game_control.status_label.config(
+                text="Opponent paused the game", fg="orange"
+            )
+            self.game_control.update_ui_by_state()
+            return
+
+        if msg == "GAME_RESUMED":
+            self.game_control.game_state = GameControlUI.STATE_NORMAL
+            self.game_control.status_label.config(
+                text="Game resumed", fg="green"
+            )
+            self.game_control.update_ui_by_state()
+            return
+
+        # ================= DRAW =================
+        if msg.startswith("DRAW_REQUEST_FROM_OPPONENT"):
+            self.game_control.game_state = GameControlUI.STATE_DRAW_OFFER_RECEIVED
+            self.game_control.status_label.config(
+                text="Opponent offered a draw", fg="blue"
+            )
+            self.game_control.update_ui_by_state()
+            return
+
+        if msg == "DRAW_ACCEPTED":
+            self.is_my_turn = False
+            self.game_control.game_state = GameControlUI.STATE_GAME_OVER
+            self.game_control.status_label.config(
+                text="Game ended in a draw", fg="blue"
+            )
+            self.game_control.update_ui_by_state()
+            messagebox.showinfo("Game Over", "The game ended in a draw")
+            return
+
+        if msg.startswith("DRAW_DECLINED_BY_OPPONENT"):
+            # Người xin hòa nhận thông báo bị từ chối
+            self.game_control.game_state = GameControlUI.STATE_NORMAL
+            self.game_control.status_label.config(
+                text="Your draw offer was declined", fg="orange"
+            )
+            self.game_control.update_ui_by_state()
+            return
+
+
+        
+        if msg == "DRAW_DECLINED":
+            self.game_control.game_state = GameControlUI.STATE_NORMAL
+            self.game_control.status_label.config(
+                text="You declined draw", fg="orange"
+            )
+            self.game_control.update_ui_by_state()
+
+
+        # ================= SURRENDER / END =================
+        if msg == "SURRENDER_SUCCESS":
+            self.is_my_turn = False
+            self.game_control.game_state = GameControlUI.STATE_GAME_OVER
+            self.game_control.status_label.config(
+                text="You surrendered", fg="red"
+            )
+            self.game_control.update_ui_by_state()
+            return
+
+        if msg.startswith("GAME_END"):
             parts = msg.split('|')
-            if len(parts) >= 3:
-                move = parts[1]
-                fen = parts[2]
-                self.last_move = move
-                self.move_label.config(text=f"Your move: {move}")
-                self.update_board_from_fen(fen)
-                # Đổi lượt
-                self.is_my_turn = False
-                self.status_label.config(text="Opponent's turn", fg="#2b2b2b")
-                self.draw_board()  # Redraw to show updated position
-                self.canvas.update_idletasks()  # Force canvas refresh
-        elif msg.startswith("OPPONENT_MOVE"):
-            # OPPONENT_MOVE|move|fen
-            parts = msg.split('|')
-            if len(parts) >= 3:
-                move = parts[1]
-                fen = parts[2]
-                self.last_move = move
-                self.move_label.config(text=f"Opponent: {move}")
-                self.update_board_from_fen(fen)
-                self.is_my_turn = True
-                self.status_label.config(text="Your turn", fg="green")
-                self.draw_board()
-                self.canvas.update_idletasks()  # Force canvas refresh
-        elif msg.startswith("GAME_END"):
-            # GAME_END|surrender|winner:X or GAME_END|checkmate|winner:X
-            parts = msg.split('|')
-            if len(parts) >= 2:
-                reason = parts[1]  # surrender, checkmate, stalemate, draw
-                winner_info = parts[2] if len(parts) >= 3 else ""
-                
-                # Determine if we won or lost
-                if "winner:" in winner_info:
-                    winner_id = int(winner_info.split(':')[1])
-                    if winner_id == self.user_id:
-                        result_text = f"You Won! ({reason})"
-                        color = "green"
-                    else:
-                        result_text = f"You Lost ({reason})"
-                        color = "red"
-                else:
-                    result_text = f"Game Ended: {reason}"
-                    color = "orange"
-                
-                self.is_my_turn = False
-                self.status_label.config(text=result_text, fg=color)
-                messagebox.showinfo("Game Over", result_text)
-        elif msg.startswith("SURRENDER_SUCCESS"):
-            # SURRENDER_SUCCESS|winner_id
-            parts = msg.split('|')
-            if len(parts) >= 2:
-                winner_id = int(parts[1])
-                if winner_id == self.user_id:
-                    self.status_label.config(text="Opponent surrendered - You won!", fg="green")
-                else:
-                    self.status_label.config(text="You surrendered", fg="red")
-        elif msg.startswith("OPPONENT_DISCONNECTED"):
-            try:
-                if self.status_label.winfo_exists():
-                    self.status_label.config(text="Opponent disconnected", fg="orange")
-                    messagebox.showinfo("Game Info", "Opponent has disconnected from the game")
-            except:
-                pass  # Widget already destroyed
-        elif msg.startswith("GAME_OVER"):
-            # GAME_OVER|match_id|result
-            parts = msg.split('|')
-            if len(parts) >= 3:
-                result = parts[2]
-                self.status_label.config(text=f"Game Over: {result}", fg="red")
-                messagebox.showinfo("Game Over", f"Result: {result}")
-    
+            reason = parts[1]
+            winner = parts[2] if len(parts) > 2 else ""
+
+            if "winner:" in winner and int(winner.split(':')[1]) == self.user_id:
+                text, color = "You won!", "green"
+            else:
+                text, color = "You lost!", "red"
+
+            self.is_my_turn = False
+            self.game_control.game_state = GameControlUI.STATE_GAME_OVER
+            self.game_control.status_label.config(
+                text=f"{text} ({reason})", fg=color
+            )
+            self.game_control.update_ui_by_state()
+            messagebox.showinfo("Game Over", text)
+            return
+
+        # ================= REMATCH =================
+        if msg == "REMATCH_REQUESTED":
+            # server ACK request → ignore UI change
+            return
+
+        if msg == "OPPONENT_REMATCH_REQUEST":
+            self.game_control.game_state = GameControlUI.STATE_REMATCH_RECEIVED
+            self.game_control.status_label.config(
+                text="Opponent wants a rematch", fg="purple"
+            )
+            self.game_control.update_ui_by_state()
+            return
+
+        if msg == "REMATCH_DECLINED":
+            self.game_control.game_state = GameControlUI.STATE_GAME_OVER
+            self.game_control.status_label.config(
+                text="Rematch declined", fg="red"
+            )
+            self.game_control.update_ui_by_state()
+            return
+        if msg.startswith("REMATCH_DECLINED_BY_OPPONENT"):
+            self.game_control.game_state = GameControlUI.STATE_GAME_OVER
+            self.game_control.status_label.config(
+                text="Your rematch request was declined", fg="purple"
+            )
+            self.game_control.update_ui_by_state()
+            return
+
+
+        if msg.startswith("REMATCH_START"):
+            _, new_match_id, color = msg.split('|')
+
+            self.match_id = int(new_match_id)
+            self.my_color = color
+
+            # Reset UI hoàn toàn
+            self.reset_ui()  # reset_ui sẽ tạo lại frame, canvas, game_control
+
+            # Sau reset_ui, các thuộc tính được khởi tạo mới
+            self.is_my_turn = (self.my_color == "white")
+            self.game_control.match_id = self.match_id
+            self.game_control.my_color = self.my_color
+            self.game_control.game_state = GameControlUI.STATE_NORMAL
+            self.game_control.status_label.config(text="New game started", fg="green")
+            self.game_control.update_ui_by_state()
+
     def update_board_from_fen(self, fen):
         """Update board state from FEN string"""
         parts = fen.split()
