@@ -18,6 +18,8 @@ typedef struct {
     pthread_mutex_t lock;
 } OnlineUsers;
 
+extern OnlineUsers online_users;
+
 // Returns socket fd for user_id, or -1 if not found
 int online_users_get_fd(OnlineUsers *users, const char *user_id);
 // Add/remove helpers (not used by chat, but useful for login/logout)

@@ -2,6 +2,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
+
 
 // Global instance for use by server and chat
 OnlineUsers online_users = {.count = 0, .lock = PTHREAD_MUTEX_INITIALIZER};
