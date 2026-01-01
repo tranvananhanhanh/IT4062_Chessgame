@@ -7,6 +7,7 @@ from ui.friend_ui import FriendUI
 from ui.login_ui import LoginUI
 from ui.history_ui import HistoryUI
 import sys
+import queue  # ← THÊM: Cho thread-safe message forwarding
 
 FONT_TITLE = ("Helvetica", 18, "bold")
 FONT_LABEL = ("Helvetica", 11)
@@ -117,8 +118,6 @@ class ChessApp:
         self.friend_ui = FriendUI(self.master, self.user_id, self.main_menu, self.client)
         self.add_listener(self.friend_ui)
 
-
-
     # ===== Network actions =====
     def send_friend_request(self):
         friend_id = self.friend_id_entry.get()
@@ -136,18 +135,30 @@ class ChessApp:
         self.pending_action = "logout"
         self.show_status("")
 
+    # ← SỬA: poll_server() – Forward qua queue nếu listener có message_queue (thread-safe)
     def poll_server(self):
-        responses = self.client.poll()
+        try:
+            responses = self.client.poll()
+        except ConnectionError as e:
+            print("[Client] Server disconnected:", e)
+            self.show_status("Mất kết nối tới server")
+            return  # ⛔ DỪNG POLLING NGAY
+
         for resp in responses:
             self.handle_server_message(resp)
+            # Forward đến listeners: Nếu listener có queue, push vào queue (thread-safe)
             for listener in self.listeners:
-                if hasattr(listener, 'handle_message'):
-                    listener.handle_message(resp)
+                if hasattr(listener, 'message_queue'):
+                    listener.message_queue.put(resp)  # ← PUSH VÀO QUEUE CỦA UI (fix integrate!)
+                elif hasattr(listener, 'handle_message'):
+                    listener.handle_message(resp)  # Fallback nếu không có queue
+
         self.master.after(30, self.poll_server)
 
+    # ← SỬA: handle_server_message – Thêm xử lý BOT_MOVE_RESULT (forward đến UI nếu đang bot game)
     def handle_server_message(self, resp):
         resp = resp.strip()
-        
+
         # Handle generic ERROR messages first
         if resp.startswith("ERROR|") and not self.pending_action:
             print(f"[Error from server] {resp}")
@@ -207,62 +218,61 @@ class ChessApp:
             elif resp.startswith("ERROR"):
                 self.show_status("Lỗi matchmaking: " + resp)
                 self.pending_action = None
-        # ===== BOT GAME HANDLING =====
+
+        # ← THÊM: Xử lý BOT_MOVE_RESULT (nếu từ server, forward đến bot UI nếu đang chơi)
         elif resp.startswith("BOT_MOVE_RESULT|"):
-            parts = resp.strip().split('|')
-            if len(parts) >= 5:
-                # Đúng định dạng: BOT_MOVE_RESULT|fen_after_player|bot_move|fen_after_bot|status
-                # Luôn cập nhật bàn cờ theo fen_after_bot (parts[3])
-                if hasattr(self, 'gamebot_ui') and self.gamebot_ui:
-                    self.gamebot_ui.last_bot_move = parts[2]
-                    self.gamebot_ui.bot_label.config(text=f"Bot: {parts[2]}")
-                    self.gamebot_ui.board_state = self.gamebot_ui.fen_to_board(parts[3])
-                    self.gamebot_ui.last_fen = parts[3]
-                    self.gamebot_ui.result_label.config(text="Kết quả: Đang chơi", fg="#2b2b2b")
-                    self.gamebot_ui.selected = None
-                    self.gamebot_ui.draw_board()
-                    status = parts[4].strip().lower()
-                    if status in ["white_win", "black_win", "draw", "timeout", "checkmate", "stalemate"]:
-                        self.gamebot_ui.show_game_end(status)
+            # Nếu đang chơi bot và có gamebot_ui, forward trực tiếp (vì queue đã handle)
+            if hasattr(self, 'gamebot_ui') and self.gamebot_ui:
+                print(f"[App DEBUG] Forwarding BOT_MOVE_RESULT to GameBotUI: {resp}")
+                # Push vào queue của UI (đã add_listener ở start_bot_game)
+                if hasattr(self.gamebot_ui, 'message_queue'):
+                    self.gamebot_ui.message_queue.put(resp)
+                else:
+                    self.gamebot_ui.handle_server_message(resp)  # Fallback
+
+        # ← GIỮ NGUYÊN: Xử lý BOT_MATCH_CREATED (tạo UI sau khi nhận từ server)
+        elif resp.startswith("BOT_MATCH_CREATED|"):
+            self.bot_starting = False
+
+            _, match_id, fen = resp.split('|', 2)
+
+            self.clear()
+            self.gamebot_ui = GameBotUI(
+                self.master,
+                int(match_id),
+                self.client,
+                self.main_menu,
+                difficulty=self.selected_bot_difficulty
+            )
+            self.add_listener(self.gamebot_ui)
+            self.gamebot_ui.frame.pack(fill="both", expand=True)
+            self.current_frame = self.gamebot_ui.frame
+            self.master.update_idletasks()
 
     def start_bot_game(self):
-        # Prompt for difficulty selection before starting bot game
         def on_select_difficulty(difficulty):
             difficulty_window.destroy()
+
             self.selected_bot_difficulty = difficulty
+            self.bot_starting = True
+
+            # CHỈ SEND – KHÔNG POLL
             self.client.send(f"MODE_BOT|{self.user_id}|{difficulty}\n")
-            def check_bot_match():
-                responses = self.client.poll()
-                for resp in responses:
-                    if resp.startswith("BOT_MATCH_CREATED"):
-                        parts = resp.strip().split('|')
-                        match_id = int(parts[1])
-                        self.current_frame.pack_forget()
-                        self.master.state("zoomed")
-                        # Pass difficulty to GameBotUI
-                        self.gamebot_ui = GameBotUI(self.master, match_id, self.client, self.main_menu, difficulty=difficulty)
-                        self.gamebot_ui.frame.pack(fill="both", expand=True)
-                        self.current_frame = self.gamebot_ui.frame
-                        self.master.update_idletasks()
-                        return
-                    elif resp.startswith("ERROR"):
-                        self.show_status("Lỗi: " + resp)
-                        return
-                self.master.after(30, check_bot_match)
-            check_bot_match()
 
         difficulty_window = tk.Toplevel(self.master)
-        difficulty_window.title("Chọn độ khó Bot")
-        difficulty_window.geometry("320x180")
-        difficulty_window.configure(bg="#f8f5ff")
-        tk.Label(difficulty_window, text="Chọn độ khó khi chơi với Bot", font=FONT_TITLE, bg="#f8f5ff").pack(pady=(18, 10))
-        btn_frame = tk.Frame(difficulty_window, bg="#f8f5ff")
-        btn_frame.pack(pady=10)
-        tk.Button(btn_frame, text="Dễ (Easy)", font=FONT_BUTTON, width=12, command=lambda: on_select_difficulty("easy")).pack(side="left", padx=10)
-        tk.Button(btn_frame, text="Khó (Hard)", font=FONT_BUTTON, width=12, command=lambda: on_select_difficulty("hard")).pack(side="left", padx=10)
-        difficulty_window.transient(self.master)
-        difficulty_window.grab_set()
-        difficulty_window.focus_set()
+        difficulty_window.title("Chọn độ khó")
+
+        tk.Button(
+            difficulty_window,
+            text="Easy",
+            command=lambda: on_select_difficulty("easy")
+        ).pack(padx=20, pady=10)
+
+        tk.Button(
+            difficulty_window,
+            text="Hard",
+            command=lambda: on_select_difficulty("hard")
+        ).pack(padx=20, pady=10)
 
     def _back_to_menu_and_resize(self):
         self.master.geometry("400x350")

@@ -1,386 +1,420 @@
+
 import tkinter as tk
-import sys
+from tkinter import messagebox
+import queue  # Cho thread-safe message forwarding
 
 PIECE_UNICODE = {
     'r': '\u265C', 'n': '\u265E', 'b': '\u265D', 'q': '\u265B', 'k': '\u265A', 'p': '\u265F',
     'R': '\u2656', 'N': '\u2658', 'B': '\u2657', 'Q': '\u2655', 'K': '\u2654', 'P': '\u2659',
     '.': ''
 }
-START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"
 
-# ===== Bảng màu pastel hiện đại =====
+START_BOARD_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"  # Chỉ board
+START_FULL_FEN = START_BOARD_FEN + " w KQkq - 0 1"  # Full cho turn
+
+# ===== COLORS =====
 BG_MAIN = "#f8f5ff"
 BG_BOARD = "#fde2f3"
 BG_PANEL = "#e3f2fd"
 COLOR_LIGHT = "#fce7f3"
 COLOR_DARK = "#a6c8ff"
 COLOR_SELECTED = "#ff8fab"
-TEXT_MAIN = "#2b2b2b"
+COLOR_HINT = "#caffbf"
 BTN_EXIT = "#ff6b81"
 
+
 class GameBotUI:
-    def __init__(self, master, match_id, client, on_back, difficulty=None):
+    def __init__(self, master, match_id, client, on_back, difficulty="easy"):
         self.master = master
         self.match_id = match_id
         self.client = client
         self.on_back = on_back
-        self.difficulty = difficulty or "easy"
+        self.difficulty = difficulty
 
-        self.master.configure(bg=BG_MAIN)
         self.frame = tk.Frame(master, bg=BG_MAIN)
         self.frame.pack(fill="both", expand=True)
 
-        # Cho phép self.frame mở rộng
-        self.frame.rowconfigure(0, weight=1)
-        self.frame.columnconfigure(0, weight=1)
+        self.board_state = self.fen_to_board(START_BOARD_FEN)
+        self.last_fen = START_FULL_FEN  # Full cho turn
+        self.selected = None
+        self.game_end_shown = False
+        self.game_ended = False  # ← THÊM: Flag để khóa board và buttons
 
-        # ====== MAIN CONTAINER ======
+        # Lưu Label từng ô để update mượt
+        self.labels = [[None for _ in range(8)] for _ in range(8)]
+
+        # Queue để forward message từ PollClient (thread-safe)
+        self.message_queue = queue.Queue()
+
+        self.build_ui()
+        self.draw_board()
+
+        # Bắt đầu poll queue ngay
+        self.poll_messages()
+
+    # ================= UI =================
+    def build_ui(self):
         container = tk.Frame(self.frame, bg=BG_MAIN)
-        container.grid(row=0, column=0, sticky="nsew")
-        container.rowconfigure(0, weight=1)
-        # Cả 2 cột đều không giãn ngang
-        container.columnconfigure(0, weight=0)
-        container.columnconfigure(1, weight=0)
+        container.pack(fill="both", expand=True)
 
-        # ====== BOARD (LEFT) ======
-        BOARD_SIZE = 850
-        self.board_frame = tk.Frame(
-            container, bg=BG_BOARD, bd=4, relief="ridge", width=BOARD_SIZE, height=BOARD_SIZE
-        )
-        self.board_frame.grid(row=0, column=0, padx=(20, 10), pady=20, sticky="n")
-        self.board_frame.grid_propagate(False)
+        self.board_frame = tk.Frame(container, bg=BG_BOARD, bd=4, relief="ridge")
+        self.board_frame.pack(side="left", padx=20, pady=20)
 
-        # ====== INFO PANEL (RIGHT) ======
-        INFO_WIDTH = 500
-        self.info_frame = tk.Frame(container, bg=BG_PANEL, width=INFO_WIDTH)
-        self.info_frame.grid(row=0, column=1, sticky="ns", padx=(10, 20), pady=20)
-        self.info_frame.grid_propagate(False)
+        self.info_frame = tk.Frame(container, bg=BG_PANEL, width=400)
+        self.info_frame.pack(side="right", fill="y", padx=20, pady=20)
+        self.info_frame.pack_propagate(False)
 
         tk.Label(
             self.info_frame,
-            text="THÔNG TIN VÁN ĐẤU",
+            text="CHƠI VỚI BOT",
             font=("Helvetica", 18, "bold"),
-            bg=BG_PANEL,
-            fg=TEXT_MAIN
-        ).pack(pady=(15, 10))
-
-        self.move_label = tk.Label(
-            self.info_frame,
-            text="Nước đi bạn: -",
-            font=("Helvetica", 14),
             bg=BG_PANEL
-        )
-        self.move_label.pack(anchor="w", padx=20, pady=6)
+        ).pack(pady=15)
 
-        self.bot_label = tk.Label(
-            self.info_frame,
-            text="Bot: -",
-            font=("Helvetica", 14),
-            bg=BG_PANEL
-        )
-        self.bot_label.pack(anchor="w", padx=20, pady=6)
+        self.move_label = tk.Label(self.info_frame, text="Bạn: -", font=("Helvetica", 14), bg=BG_PANEL)
+        self.move_label.pack(anchor="w", padx=20)
 
-        self.result_label = tk.Label(
+        self.bot_label = tk.Label(self.info_frame, text="Bot: -", font=("Helvetica", 14), bg=BG_PANEL)
+        self.bot_label.pack(anchor="w", padx=20)
+
+        self.result_label = tk.Label(self.info_frame, text="Đang chơi", font=("Helvetica", 14, "bold"), bg=BG_PANEL)
+        self.result_label.pack(anchor="w", padx=20, pady=10)
+
+        # ← SỬA: Lưu ref button để disable sau
+        self.surrender_btn = tk.Button(
             self.info_frame,
-            text="Kết quả: Đang chơi",
+            text="ĐẦU HÀNG",
             font=("Helvetica", 14, "bold"),
-            bg=BG_PANEL
+            bg="#adb5bd",
+            command=self.surrender
         )
-        self.result_label.pack(anchor="w", padx=20, pady=12)
-
-        self.time_label = tk.Label(
-            self.info_frame,
-            text="⏱ Thời gian: ∞",
-            font=("Helvetica", 13),
-            bg=BG_PANEL
-        )
-        self.time_label.pack(anchor="w", padx=20, pady=6)
+        self.surrender_btn.pack(pady=10)
 
         tk.Button(
             self.info_frame,
-            text="THOÁT TRẬN",
+            text="THOÁT",
             font=("Helvetica", 14, "bold"),
             bg=BTN_EXIT,
-            fg="white",
-            relief="flat",
+            fg="black",  # ← FIX: Đổi từ "white" thành "black" cho chữ đen
             command=self.back
-        ).pack(side="bottom", pady=20, ipadx=10, ipady=6)
+        ).pack(side="bottom", pady=20)
 
-        # ===== BOARD STATE =====
-        self.board_state = self.fen_to_board(START_FEN)
-        self.squares = []
-        self.selected = None
-        self.last_move = "-"
-        self.last_bot_move = "-"
-        self.draw_board()
-        self.start_polling()
-        self.game_end_shown = False  # Ngăn overlay kết thúc hiện nhiều lần
-
-    def fen_to_board(self, fen):
+    # ================= BOARD =================
+    def fen_to_board(self, board_fen):  # Chỉ nhận board_fen (không full)
         board = []
-        for row in fen.split('/'):
-            b_row = []
+        for row in board_fen.split('/'):
+            r = []
             for c in row:
                 if c.isdigit():
-                    b_row.extend(['.'] * int(c))
+                    r.extend(['.'] * int(c))
                 else:
-                    b_row.append(c)
-            board.append(b_row)
+                    r.append(c)
+            if len(r) != 8:  # Debug: Warn nếu row sai
+                print(f"WARN: Row length {len(r)} != 8 in {row}")
+            board.append(r[:8])  # Cắt nếu extra (backup)
         return board
 
     def draw_board(self):
-        for w in self.board_frame.winfo_children():
-            w.destroy()
-        SQUARE_SIZE = 100  # 900/8 ≈ 112, fixed size for each square
-        # Do NOT allow rows/columns to auto-scale
-        for i in range(8):
-            self.board_frame.rowconfigure(i, weight=0, minsize=SQUARE_SIZE)
-            self.board_frame.columnconfigure(i, weight=0, minsize=SQUARE_SIZE)
-        for i in range(8):
-            for j in range(8):
-                base_color = COLOR_LIGHT if (i + j) % 2 == 0 else COLOR_DARK
-                if self.selected == (i, j):
-                    base_color = COLOR_SELECTED
-                piece = self.board_state[i][j]
-                lbl = tk.Label(
-                    self.board_frame,
-                    bg=base_color,
-                    font=("Arial Unicode MS", 28),
-                    text=PIECE_UNICODE.get(piece, ''),
-                    relief="flat",
-                    borderwidth=0,
-                    width=3,  # fixed width
-                    height=2  # fixed height
-                )
-                lbl.grid(row=i, column=j, sticky="nsew")
-                lbl.bind("<Button-1>", lambda e, r=i, c=j: self.on_square_click(r, c))
-        # Do NOT resize board_frame here!
-
-    def on_square_click(self, row, col):
-        # Chỉ cho phép đi khi đến lượt trắng
-        if not self.is_white_turn():
-            self.result_label.config(text="Chờ bot đi...", fg="#ff6b81")
-            return
-        piece = self.board_state[row][col]
-        if self.selected is None:
-            if piece in 'RNBQKP':
-                self.selected = (row, col)
-                self.draw_board()
-            else:
-                self.result_label.config(text="Chỉ được chọn quân trắng!", fg="#ff6b81")
+        # Nếu chưa tạo Label thì tạo một lần duy nhất
+        if not any(self.labels[0]):
+            for r in range(8):
+                for c in range(8):
+                    bg = COLOR_LIGHT if (r + c) % 2 == 0 else COLOR_DARK
+                    lbl = tk.Label(
+                        self.board_frame,
+                        text=PIECE_UNICODE.get(self.board_state[r][c], ""),
+                        bg=bg,
+                        font=("Helvetica", 32),
+                        width=3,
+                        height=2
+                    )
+                    lbl.grid(row=r, column=c)
+                    # ← THÊM: Bind với check game_ended trong on_square_click
+                    lbl.bind("<Button-1>", lambda e, rr=r, cc=c: self.on_square_click(rr, cc))
+                    self.labels[r][c] = lbl
         else:
-            # Nếu bấm lại đúng ô đang chọn thì bỏ chọn (deselect)
-            if self.selected == (row, col):
-                self.selected = None
-                self.draw_board()
-                return
-            from_row, from_col = self.selected
-            to_row, to_col = row, col
-            moving_piece = self.board_state[from_row][from_col]
-            # Nếu chọn quân trắng khác thì chuyển sang chọn quân mới
-            if piece in 'RNBQKP':
+            # Cập nhật text và màu cho mỗi ô
+            for r in range(8):
+                for c in range(8):
+                    piece = self.board_state[r][c]
+                    bg = COLOR_LIGHT if (r + c) % 2 == 0 else COLOR_DARK
+                    if self.selected == (r, c):
+                        bg = COLOR_SELECTED
+                    elif self.selected and self.is_white_turn() and not self.game_ended:  # ← THÊM: Check game_ended
+                        fr, fc = self.selected
+                        if self.is_valid_hint_move(fr, fc, r, c):
+                            bg = COLOR_HINT
+                    self.labels[r][c].config(text=PIECE_UNICODE.get(piece, ""), bg=bg)
+
+    # ================= HINT LOGIC =================
+    def is_valid_hint_move(self, fr, fc, tr, tc):
+        if self.game_ended:  # ← THÊM: Không hint nếu game end
+            return False
+        if (fr, fc) == (tr, tc):
+            return False
+
+        piece = self.board_state[fr][fc]
+        target = self.board_state[tr][tc]
+
+        if piece == '.' or not piece.isupper():
+            return False
+        if target != '.' and target.isupper():
+            return False
+
+        p = piece.upper()
+        dr = tr - fr
+        dc = tc - fc
+
+        if p == 'P':
+            # forward
+            if dc == 0:
+                if dr == -1 and target == '.':
+                    return True
+                if fr == 6 and dr == -2 and target == '.' and self.board_state[fr-1][fc] == '.':
+                    return True
+            # capture - ← FIX: Chỉ cho đi chéo nếu target là quân đen (islower()), không cho empty
+            if abs(dc) == 1 and dr == -1 and target != '.' and target.islower():
+                return True
+            # Promotion moves vẫn valid (hint highlight), dialog sau
+            if abs(dr) == 1 and abs(dc) <= 1 and (target == '.' or target.islower()):  # Chỉ forward/capture valid
+                return True
+            return False
+
+        if p == 'N':
+            return (abs(dr), abs(dc)) in [(1, 2), (2, 1)]
+
+        if p == 'B':
+            return abs(dr) == abs(dc) and self.is_path_clear(fr, fc, tr, tc)
+
+        if p == 'R':
+            return (dr == 0 or dc == 0) and self.is_path_clear(fr, fc, tr, tc)
+
+        if p == 'Q':
+            return ((dr == 0 or dc == 0) or abs(dr) == abs(dc)) and \
+                   self.is_path_clear(fr, fc, tr, tc)
+
+        if p == 'K':
+            return abs(dr) <= 1 and abs(dc) <= 1
+
+        return False
+
+    def is_path_clear(self, fr, fc, tr, tc):
+        dr = 1 if tr > fr else -1 if tr < fr else 0
+        dc = 1 if tc > fc else -1 if tc < fc else 0
+
+        r, c = fr + dr, fc + dc
+        while (r, c) != (tr, tc):
+            if self.board_state[r][c] != '.':
+                return False
+            r += dr
+            c += dc
+        return True
+
+    # ================= CLICK =================
+    def on_square_click(self, row, col):
+        if self.game_ended:  # ← THÊM: Khóa click nếu game end
+            return
+
+        if not self.is_white_turn():
+            return
+
+        piece = self.board_state[row][col]
+
+        if self.selected is None:
+            if piece.isupper():
                 self.selected = (row, col)
                 self.draw_board()
-                return
-            if moving_piece == 'P' and to_row == 0:
-                move = self.coords_to_uci(from_row, from_col, to_row, to_col)
-                self.show_promotion_popup(move)
+            return
+
+        fr, fc = self.selected
+
+        if (fr, fc) == (row, col):
+            self.selected = None
+            self.draw_board()
+            return
+
+        if piece.isupper():
+            self.selected = (row, col)
+            self.draw_board()
+            return
+
+        if self.is_valid_hint_move(fr, fc, row, col):
+            # Check nếu pawn promotion (trắng đến row 0)
+            is_pawn_promotion = (self.board_state[fr][fc] == 'P' and row == 0)
+            if is_pawn_promotion:
+                self.show_promotion_dialog(fr, fc, row, col)
+            else:
+                move = self.coords_to_uci(fr, fc, row, col)
+                # Tạm update local board để UI responsive (di chuyển ngay)
+                self.apply_local_move(fr, fc, row, col, promote_to=None)
                 self.selected = None
                 self.draw_board()
-            else:
-                move = self.coords_to_uci(from_row, from_col, to_row, to_col)
-                self.selected = None
                 self.send_move(move)
-                # KHÔNG gọi self.draw_board() ở đây!
+
+    # Dialog chọn promotion (giữ nguyên)
+    def show_promotion_dialog(self, fr, fc, tr, tc):
+        dialog = tk.Toplevel(self.master)
+        dialog.title("Phong cấp Tốt")
+        dialog.geometry("200x150")
+        dialog.transient(self.master)  # Center on main window
+        dialog.grab_set()  # Modal (block input)
+
+        tk.Label(dialog, text="Chọn quân cờ để phong cấp:", font=("Helvetica", 12)).pack(pady=10)
+
+        promote_options = ['Q', 'R', 'B', 'N']  # Queen, Rook, Bishop, Knight
+
+        def on_promote(to_piece):
+            dialog.destroy()
+            # Apply move với promote
+            self.apply_local_move(fr, fc, tr, tc, promote_to=to_piece)
+            # Tạo UCI với suffix promote
+            move = self.coords_to_uci(fr, fc, tr, tc) + to_piece.lower()  # e.g., "a7a8q"
+            self.selected = None
+            self.draw_board()
+            self.send_move(move)
+
+        for opt in promote_options:
+            piece_name = {'Q': 'Hậu', 'R': 'Xe', 'B': 'Tượng', 'N': 'Mã'}[opt]
+            tk.Button(
+                dialog,
+                text=f"{piece_name} ({opt})",
+                font=("Helvetica", 10, "bold"),
+                width=10,
+                command=lambda p=opt: on_promote(p),
+                bg="#e0e0e0"
+            ).pack(pady=5)
+
+    def apply_local_move(self, fr, fc, tr, tc, promote_to=None):
+        """Tạm apply move local (user move), handle promotion"""
+        piece = self.board_state[fr][fc]
+        if promote_to:  # Promotion: Thay pawn bằng piece mới (upper cho trắng)
+            self.board_state[tr][tc] = promote_to  # 'Q', 'R', etc.
+        else:
+            self.board_state[tr][tc] = piece
+        self.board_state[fr][fc] = '.'
 
     def is_white_turn(self):
-        # Lấy FEN hiện tại từ BOT_MOVE_RESULT hoặc self.board_state
-        # Giả sử self.last_fen luôn được cập nhật từ BOT_MOVE_RESULT
-        if hasattr(self, 'last_fen'):
+        if self.game_ended:  # ← THÊM: Không check turn nếu end
+            return False
+        if self.last_fen and ' ' in self.last_fen:
             return self.last_fen.split(' ')[1] == 'w'
-        return True  # Mặc định cho phép đi đầu tiên
-
-    def show_promotion_popup(self, move):
-        popup = tk.Toplevel(self.master)
-        popup.transient(self.master)
-        popup.grab_set()
-        popup.geometry("300x120")
-        popup.title("Phong tốt")
-        popup.configure(bg="#ffe0f7")
-        tk.Label(popup, text="Chọn quân muốn phong:", font=("Helvetica", 14), fg="#ff6b81", bg="#ffe0f7").pack(pady=10)
-        btn_frame = tk.Frame(popup, bg="#ffe0f7")
-        btn_frame.pack(pady=5)
-        for piece, label in zip(['q', 'r', 'b', 'n'], ['Hậu', 'Xe', 'Tượng', 'Mã']):
-            tk.Button(
-                btn_frame, text=label, width=7, font=("Helvetica", 13),
-                bg="#ffb3c6", fg="#2b2b2b",
-                command=lambda p=piece: self._promote_and_send(move, p, popup)
-            ).pack(side="left", padx=5)
-
-    def _promote_and_send(self, move, promotion, popup):
-        popup.destroy()
-        self.send_move(move + promotion)
+        return True
 
     def coords_to_uci(self, fr, fc, tr, tc):
-        files = 'abcdefgh'
-        ranks = '87654321'
+        files = "abcdefgh"
+        ranks = "87654321"
         return f"{files[fc]}{ranks[fr]}{files[tc]}{ranks[tr]}"
 
+    # ================= SERVER =================
     def send_move(self, move):
-        self.last_move = move
-        self.move_label.config(text=f"Nước đi bạn: {move}")
-        # Always send difficulty with BOT_MOVE
+        self.move_label.config(text=f"Bạn: {move}")
         self.client.send(f"BOT_MOVE|{self.match_id}|{move}|{self.difficulty}\n")
 
-    def start_polling(self):
-        responses = self.client.poll()
-        for resp in responses:
-            self.handle_server_message(resp)
-        self.master.after(30, self.start_polling)
+    def handle_server_message(self, msg):
+        print(f"[UI DEBUG] Received and handling: {msg}")  # Debug
+        if msg.startswith("BOT_MOVE_RESULT|"):
+            parts = msg.strip().split('|')
+            if len(parts) == 4:
+                _, full_fen, bot_move, status = parts
+                board_fen = full_fen.split(' ')[0]  # Chỉ lấy board part
+                self.board_state = self.fen_to_board(board_fen)
+                self.last_fen = full_fen  # Full cho turn
+                self.bot_label.config(text=f"Bot: {bot_move}")
+                print(f"[UI DEBUG] Bot move: {bot_move}, FEN board: {board_fen}")
 
-    def handle_server_message(self, resp):
-        resp_lower = resp.lower()
-        # Xử lý lỗi protocol trả về từ server
-        if resp.startswith("ERROR|"):
-            msg = resp[6:] if resp.startswith("ERROR|") else resp
-            # Check if result_label still exists before updating
-            if hasattr(self, 'result_label') and self.result_label.winfo_exists():
-                if "illegal move" in msg.lower() or "invalid move" in msg.lower():
-                    self.result_label.config(text="Nước đi không hợp lệ!", fg="#ff6b81")
-                    self.show_error("Nước đi không hợp lệ! Hãy thử lại.")
-                elif "check" in msg.lower() or "king in check" in msg.lower():
-                    self.result_label.config(text="Bạn đang bị chiếu tướng!", fg="#ff6b81")
-                    self.show_error("Bạn đang bị chiếu tướng, hãy bảo vệ vua!")
-                else:
-                    self.result_label.config(text="Lỗi: " + msg.split("[")[0], fg="#ff6b81")
-                    self.show_error("Lỗi: " + msg.split("[")[0])
-            return
-        if resp.startswith("BOT_MOVE_RESULT|"):
-            parts = resp.strip().split('|')
-            if len(parts) >= 5:
-                self.board_state = self.fen_to_board(parts[1])
-                self.last_fen = parts[1]
-                self.draw_board()
-                self.last_bot_move = parts[2]
-                self.bot_label.config(text=f"Bot: {parts[2]}")
-                self.board_state = self.fen_to_board(parts[3])
-                self.last_fen = parts[3]
-                self.result_label.config(text="Kết quả: Đang chơi", fg=TEXT_MAIN)
-                self.selected = None
-                self.draw_board()
-                status = parts[4].strip().lower()
-                if status in ["white_win", "black_win", "draw", "timeout", "checkmate", "stalemate", "insufficient_material"]:
-                    # Chuyển các trạng thái hòa về 'draw' cho UI
-                    if status in ["draw", "stalemate", "insufficient_material"]:
-                        self.show_game_end("draw")
-                    else:
-                        self.show_game_end(status)
-            else:
-                self.bot_label.config(text=f"Bot: {parts[2]}")
-                self.board_state = self.fen_to_board(parts[3])
-                self.selected = None
-                self.draw_board()
-        elif resp.startswith("GAME_END|"):
-            parts = resp.strip().split('|')
-            if len(parts) >= 3 and parts[2].startswith("winner:"):
-                winner = parts[2].split(":")[1]
-                status = parts[1].strip().lower()
-                if winner == "0":
-                    self.show_game_end("white_win")
-                else:
-                    self.show_game_end("black_win")
-            elif len(parts) >= 3 and parts[2] == "draw":
-                self.show_game_end("draw")
-            else:
-                self.show_game_end(resp)
-        elif (
-            resp.startswith("DRAW") or resp.startswith("CHECKMATE") or resp.startswith("STALEMATE")
-            or "timeout" in resp_lower or "win" in resp_lower or "lose" in resp_lower or "finished" in resp_lower or "end" in resp_lower
-        ):
-            # Nếu là các thông báo hòa, thắng, thua dạng protocol, chuyển thành status chuẩn
-            if resp_lower.startswith("draw") or "insufficient_material" in resp_lower:
-                self.show_game_end("draw")
-            elif resp_lower.startswith("checkmate"):
-                self.show_game_end("checkmate")
-            elif resp_lower.startswith("stalemate"):
-                self.show_game_end("stalemate")
-            elif "white_win" in resp_lower:
-                self.show_game_end("white_win")
-            elif "black_win" in resp_lower:
-                self.show_game_end("black_win")
-            else:
-                self.show_game_end(resp)
+                # Debug: Print board shape và ví dụ piece h5 (row3 col7)
+                print(f"Updated board shape: {len(self.board_state)}x{len(self.board_state[0]) if self.board_state else 0}")
+                if self.board_state:
+                    print(f"h5 piece (row3 col7): '{self.board_state[3][7]}'")  # Nên là 'p' sau h7h5
 
-    def show_game_end(self, status):
-        if getattr(self, 'game_end_shown', False):
-            return  # Đã hiện overlay rồi, không hiện lại nữa
-        self.game_end_shown = True
-        # Đảm bảo luôn cập nhật bàn cờ cuối cùng trước khi hiển thị overlay
-        self.board_state = self.fen_to_board(self.last_fen)
+                # reset selection
+                self.selected = None
+
+                # Update UI
+                self.draw_board()
+                self.master.update_idletasks()  # Force refresh ngay lập tức
+
+                if status.lower() != "in_game":
+                    self.end_game(status)
+            else:
+                print(f"[UI DEBUG] Invalid message parts: {parts}")
+
+        # ← THÊM: Xử lý GAME_END message (e.g., 'GAME_END|stalemate|draw')
+        elif msg.startswith("GAME_END|"):
+            parts = msg.strip().split('|')
+            if len(parts) == 3:
+                _, reason, result = parts
+                print(f"[UI DEBUG] Game ended: {reason} -> {result}")
+                self.end_game(result, reason)  # Truyền result và reason
+
+    # ← THÊM: Method end_game để khóa UI
+    def end_game(self, result, reason=None):
+        self.game_ended = True  # Khóa flag
+
+        # Disable surrender button
+        if hasattr(self, 'surrender_btn'):
+            self.surrender_btn.config(state="disabled")
+
+        # Unbind clicks trên tất cả labels (khóa board)
+        for r in range(8):
+            for c in range(8):
+                if self.labels[r][c]:
+                    self.labels[r][c].unbind("<Button-1>")
+
+        # Update result label với chi tiết
+        end_text = self.get_end_text(result, reason)
+        self.result_label.config(text=end_text)
+
+        # Show messagebox nếu chưa shown
+        if not self.game_end_shown:
+            self.game_end_shown = True
+            messagebox.showinfo("Kết thúc ván đấu", end_text)
+
+        # Clear selection và redraw (màu normal, không hint)
+        self.selected = None
         self.draw_board()
-        # Chỉ tạo overlay popup, KHÔNG tạo overlay_bg nền đen toàn màn hình nữa
-        overlay = tk.Toplevel(self.master)
-        overlay.transient(self.master)
-        overlay.grab_set()
-        overlay.geometry("480x320")
-        overlay.title("")
-        overlay.configure(bg="#ffe0f7")
-        overlay.resizable(False, False)
-        overlay.lift()
-        result = ""
-        reason = ""
-        icon = ""
-        status = status.lower() if isinstance(status, str) else str(status).lower()
-        if status in ["draw", "stalemate", "insufficient_material"]:
-            result = "HÒA"
-            icon = "\u2694"
-            reason = "Ván đấu kết thúc với kết quả hòa."
-        elif status in ["white_win", "checkmate"]:
-            result = "BẠN THẮNG!"
-            icon = "\u265B"
-            reason = "Xin chúc mừng, bạn đã chiến thắng!"
-        elif status in ["black_win"]:
-            result = "BẠN THUA!"
-            icon = "\u265A"
-            reason = "Rất tiếc, bạn đã thua trận này."
-        elif status in ["timeout"]:
-            result = "HẾT GIỜ"
-            icon = "\u23F1"
-            reason = "Trận đấu kết thúc do hết thời gian."
-        else:
-            result = status
-            icon = "\u265F"
-            reason = "Trận đấu đã kết thúc."
-        frame = tk.Frame(overlay, bg="#ffe0f7", bd=0, highlightthickness=0)
-        frame.place(relx=0.5, rely=0.5, anchor="center")
-        tk.Label(frame, text=icon, font=("Arial Unicode MS", 80), bg="#ffe0f7", fg="#ff8fab").pack(pady=(18, 0))
-        tk.Label(frame, text=result, font=("Helvetica", 28, "bold"), bg="#ffe0f7", fg="#ff6b81").pack(pady=(8, 0))
-        tk.Label(frame, text=reason, font=("Helvetica", 15), bg="#ffe0f7", fg="#2b2b2b", wraplength=400, justify="center").pack(pady=(8, 18))
-        # Nút quay lại menu chính
-        tk.Button(
-            frame, text="Quay về menu chính", font=("Helvetica", 15, "bold"), width=20,
-            bg="#ff8fab", fg="#232946", activebackground="#f6c177", activeforeground="#232946",
-            relief="flat", bd=0, highlightthickness=0,
-            command=lambda: self._back_to_home_multi(overlay, None)
-        ).pack(pady=(0, 10))
-        self.result_label.config(text=f"Kết quả: {result}", fg="#ff6b81")
-        # KHÔNG tự động tắt overlay, chỉ tắt khi bấm nút quay lại
+        self.master.update_idletasks()
 
-    def _back_to_home_multi(self, overlay, overlay_bg):
-        overlay.destroy()
-        if overlay_bg:
-            overlay_bg.destroy()
-        self.frame.destroy()
-        self.game_end_shown = False  # Reset cờ khi quay về menu
-        self.on_back()
+    def get_end_text(self, result, reason=None):
+        """Map result/reason sang text tiếng Việt"""
+        mapping = {
+            "draw": "HÒA",
+            "stalemate": "HÒA – BẾ TẮC",
+            "checkmate": "CHIẾU HẾT",
+            "white_win": "BẠN THẮNG",
+            "black_win": "BOT THẮNG"  # ← FIX: Đổi "BẠN THUA" thành "BOT THẮNG" (user trắng, bot thắng)
+        }
+        base_text = mapping.get(result.lower(), f"KẾT THÚC ({result})")
+        if reason and reason.lower() == "stalemate":
+            base_text = "HÒA – BẾ TẮC"
+        return base_text
 
-    def show_error(self, msg):
-        if not hasattr(self, 'error_label'):
-            self.error_label = tk.Label(self.info_frame, text="", fg="#ff6b81", bg=BG_PANEL, font=("Helvetica", 13))
-            self.error_label.pack(pady=(0, 10))
-        self.error_label.config(text=msg)
-        self.master.after(2000, lambda: self.error_label.config(text=""))
+    # Poll queue để forward từ PollClient
+    def poll_messages(self):
+        """Poll message từ queue (thread-safe), gọi handler."""
+        try:
+            while True:  # Drain tất cả pending messages
+                msg = self.message_queue.get_nowait()
+                self.handle_server_message(msg)
+        except queue.Empty:
+            pass  # Không có message mới
+        # Poll lại sau 100ms (không block UI)
+        self.master.after(100, self.poll_messages)
+
+    # ================= END =================
+    def show_game_end(self, status):
+        # Deprecated: Dùng end_game thay thế
+        pass
+
+    def surrender(self):
+        if self.game_ended:  # ← THÊM: Không cho nếu end
+            return
+        if messagebox.askyesno("Đầu hàng", "Bạn chắc chắn muốn đầu hàng?"):
+            self.end_game("black_win")  # Giả sử user trắng, bot thắng
 
     def back(self):
+        if self.game_ended:
+            # Vẫn cho thoát dù end
+            pass
         self.frame.destroy()
         self.on_back()

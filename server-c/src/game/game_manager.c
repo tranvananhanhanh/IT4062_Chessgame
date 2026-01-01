@@ -45,6 +45,7 @@ GameMatch* game_manager_create_match(GameManager *manager, Player white, Player 
     match->winner_id = 0;
     match->draw_requester_id = 0;
     match->rematch_id = 0;  // ✅ Initialize rematch_id
+
     
     chess_board_init(&match->board);
     pthread_mutex_init(&match->lock, NULL);
@@ -90,6 +91,7 @@ GameMatch* game_manager_create_bot_match(GameManager *manager, Player white, Pla
     match->result = RESULT_NONE;
     match->winner_id = 0;
     match->draw_requester_id = 0;
+    
     match->rematch_id = 0;  // ✅ Initialize rematch_id
     
     chess_board_init(&match->board);
