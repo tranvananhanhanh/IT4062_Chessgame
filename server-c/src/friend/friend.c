@@ -4,6 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <pthread.h>
+#include "online_users.h"
+
 
 void handle_friend_request(ClientSession *session, int num_params, char *param1, char *param2, PGconn *db) {
     // FRIEND_REQUEST|user_id|friend_id
@@ -98,36 +101,54 @@ void handle_friend_decline(ClientSession *session, int num_params, char *param1,
 }
 
 void handle_friend_list(ClientSession *session, int num_params, char *param1, PGconn *db) {
-    // FRIEND_LIST|user_id
-    if (num_params >= 2) {
-        int user_id = atoi(param1);
-        char query[512];
-        snprintf(query, sizeof(query),
-            "SELECT u.user_id, u.name, u.state FROM users u "
-            "INNER JOIN friendship f ON u.user_id = f.friend_id "
-            "WHERE f.user_id=%d AND f.status='accepted';",
-            user_id);
-        PGresult *res = PQexec(db, query);
-        if (PQresultStatus(res) == PGRES_TUPLES_OK) {
-            char response[2048] = "FRIEND_LIST|";
-            for (int i = 0; i < PQntuples(res); i++) {
-                char *fid = PQgetvalue(res, i, 0);
-                char *fname = PQgetvalue(res, i, 1);
-                char *fstate = PQgetvalue(res, i, 2);
-                char entry[128];
-                snprintf(entry, sizeof(entry), "%s:%s:%s", fid, fname, fstate);
-                strcat(response, entry);
-                if (i < PQntuples(res) - 1) strcat(response, ",");
+    if (num_params < 2) return;
+
+    int user_id = atoi(param1);
+    char query[512];
+
+    snprintf(query, sizeof(query),
+        "SELECT u.user_id, u.name "
+        "FROM users u "
+        "INNER JOIN friendship f ON u.user_id = f.friend_id "
+        "WHERE f.user_id=%d AND f.status='accepted';",
+        user_id);
+
+    PGresult *res = PQexec(db, query);
+
+    if (PQresultStatus(res) == PGRES_TUPLES_OK) {
+        char response[2048] = "FRIEND_LIST|";
+
+        for (int i = 0; i < PQntuples(res); i++) {
+            char *fid = PQgetvalue(res, i, 0);
+            char *fname = PQgetvalue(res, i, 1);
+
+            const char *status = "offline";
+
+            pthread_mutex_lock(&online_users.lock);
+            for (int j = 0; j < online_users.count; j++) {
+                if (online_users.entries[j].user_id == atoi(fid)) {
+                    status = "online";
+                    break;
+                }
             }
-            strcat(response, "\n");
-            send(session->socket_fd, response, strlen(response), 0);
-            printf("[Server] Send to client %d: %s", session->socket_fd, response);
-        } else {
-            char error[] = "ERROR|Failed to get friend list\n";
-            send(session->socket_fd, error, strlen(error), 0);
+            pthread_mutex_unlock(&online_users.lock);
+
+            char entry[128];
+            snprintf(entry, sizeof(entry), "%s:%s:%s", fid, fname, status);
+            strcat(response, entry);
+
+            if (i < PQntuples(res) - 1)
+                strcat(response, ",");
         }
-        PQclear(res);
+
+        strcat(response, "\n");
+        send(session->socket_fd, response, strlen(response), 0);
+    } else {
+        char error[] = "ERROR|Failed to get friend list\n";
+        send(session->socket_fd, error, strlen(error), 0);
     }
+
+    PQclear(res);
 }
 
 void handle_friend_requests(ClientSession *session, int num_params, char *param1, PGconn *db) {
