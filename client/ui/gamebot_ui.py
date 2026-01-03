@@ -17,8 +17,8 @@ BG_PANEL = "#ffffff"
 COLOR_LIGHT = "#ecd9b9"
 COLOR_DARK = "#ae8968"
 COLOR_SELECTED = "#7b9652" 
-COLOR_HINT_SAFE = "#82ad44"  # Xanh lá cho nước đi hợp lệ
-COLOR_HINT_DANGER = "#ff4d4d" # Đỏ cho nước đi phạm luật (bị chiếu)
+COLOR_HINT_SAFE = "#82ad44"  
+COLOR_HINT_DANGER = "#ff4d4d" 
 BTN_EXIT_BG = "#ff6b81"
 
 class GameBotUI:
@@ -118,52 +118,33 @@ class GameBotUI:
                     cvs.itemconfig(self.piece_texts[r][c], text=PIECE_UNICODE[self.board_state[r][c]])
                     cvs.delete("hint")
 
-                # Gợi ý nước đi
                 if self.selected and not self.game_ended:
                     if self.is_valid_hint_move(*self.selected, r, c):
-                        # Kiểm tra xem nước đi này có làm Vua bị chiếu không
                         is_legal = self.is_move_legal_considering_check(*self.selected, r, c)
                         color = COLOR_HINT_SAFE if is_legal else COLOR_HINT_DANGER
-                        
                         margin = cell_size * 0.32
-                        cvs.create_oval(
-                            margin, margin, cell_size - margin, cell_size - margin,
-                            outline=color, width=4, tags="hint"
-                        )
+                        cvs.create_oval(margin, margin, cell_size - margin, cell_size - margin, outline=color, width=4, tags="hint")
 
     def on_square_click(self, r, c):
         if self.game_ended or not self.is_white_turn(): return
-        
         if self.selected is None:
             if self.board_state[r][c].isupper():
                 self.selected = (r, c)
                 self.draw_board()
             return
-
         fr, fc = self.selected
-        
-        # Click lại ô cũ hoặc chọn quân khác cùng màu
         if (fr, fc) == (r, c) or self.board_state[r][c].isupper():
             self.selected = (r, c) if (self.board_state[r][c].isupper() and (fr, fc) != (r, c)) else None
             self.draw_board()
             return
-
         if self.is_valid_hint_move(fr, fc, r, c):
-            # CHẶN KHÔNG CHO ĐI NẾU Ô CÓ VÒNG TRÒN ĐỎ (Vua bị chiếu)
-            if not self.is_move_legal_considering_check(fr, fc, r, c):
-                # Không làm gì cả, người chơi phải chọn nước đi khác
-                return
-
+            if not self.is_move_legal_considering_check(fr, fc, r, c): return
             move = self.coords_to_uci(fr, fc, r, c)
-            piece = self.board_state[fr][fc]
-            
-            if piece == 'P' and r == 0:
-                promo_char = self.get_promotion_choice()
-                move += promo_char
-                self.apply_local_move(fr, fc, r, c, promo_char.upper())
-            else:
-                self.apply_local_move(fr, fc, r, c)
-
+            if self.board_state[fr][fc] == 'P' and r == 0:
+                promo = self.get_promotion_choice()
+                move += promo
+                self.apply_local_move(fr, fc, r, c, promo.upper())
+            else: self.apply_local_move(fr, fc, r, c)
             self.selected = None
             self.draw_board()
             self.send_move(move)
@@ -174,30 +155,22 @@ class GameBotUI:
         promotion_window.geometry("320x150")
         promotion_window.resizable(False, False)
         promotion_window.grab_set() 
-        
         x = self.master.winfo_x() + (self.master.winfo_width() // 2) - 160
         y = self.master.winfo_y() + (self.master.winfo_height() // 2) - 75
         promotion_window.geometry(f"+{x}+{y}")
-
         choice = tk.StringVar(value="q")
         tk.Label(promotion_window, text="Chọn quân phong cấp:", font=("Helvetica", 11, "bold")).pack(pady=10)
         btn_frame = tk.Frame(promotion_window)
         btn_frame.pack()
-
         for char, display in [('q', 'Q'), ('r', 'R'), ('b', 'B'), ('n', 'N')]:
-            tk.Button(btn_frame, text=PIECE_UNICODE[display], font=("Helvetica", 20),
-                      width=2, command=lambda c=char: [choice.set(c), promotion_window.destroy()]).pack(side="left", padx=5)
-
+            tk.Button(btn_frame, text=PIECE_UNICODE[display], font=("Helvetica", 20), width=2, command=lambda c=char: [choice.set(c), promotion_window.destroy()]).pack(side="left", padx=5)
         self.master.wait_window(promotion_window)
         return choice.get()
 
     def surrender(self):
         if self.game_ended: return
         self.client.send(f"SURRENDER|{self.match_id}\n")
-        self.game_ended = True
-        self.result_label.config(text="BẠN THUA (ĐÃ ĐẦU HÀNG)", fg="red", font=("Helvetica", 12, "bold"))
-        self.surrender_btn.config(state="disabled")
-        messagebox.showinfo("Kết thúc", "Bạn đã đầu hàng. Trận đấu kết thúc!")
+        self.end_game("black_win", "Đã đầu hàng")
 
     def send_move(self, move):
         self.move_label.config(text=f"Bạn: {move}")
@@ -296,19 +269,32 @@ class GameBotUI:
         except queue.Empty: pass
         self.master.after(100, self.poll_messages)
 
+    # ĐÃ SỬA LỖI LOGIC HIỂN THỊ TẠI ĐÂY
     def end_game(self, result, reason=None):
         if self.game_ended: return
         self.game_ended = True
         res = result.lower()
-        if res == "white_win": text = "BẠN THẮNG"
-        elif res == "black_win": text = "BẠN THUA"
-        else: text = "HÒA"
-        if reason: text += f" ({reason})"
+        
+        # Phân loại rõ rệt kết quả dựa trên status từ server
+        if res == "white_win":
+            text = "BẠN THẮNG"
+        elif res == "black_win":
+            text = "BẠN THUA"
+        elif res == "draw" or "stalemate" in res or "material" in res:
+            text = "HÒA"
+        else:
+            text = res.upper()
+            
+        if reason:
+            text += f" ({reason})"
+            
         self.result_label.config(text=text, fg="red", font=("Helvetica", 12, "bold"))
         self.surrender_btn.config(state="disabled")
+        
         if not self.game_end_shown:
-            self.game_end_shown = True; messagebox.showinfo("Kết thúc", text)
-            self.back()
+            self.game_end_shown = True
+            messagebox.showinfo("Kết thúc", text)
+            self.back() # Tự động quay về menu chính
 
     def is_white_turn(self): return self.last_fen.split(' ')[1] == 'w'
     def coords_to_uci(self, fr, fc, tr, tc): return f"{'abcdefgh'[fc]}{'87654321'[fr]}{'abcdefgh'[tc]}{'87654321'[tr]}"
