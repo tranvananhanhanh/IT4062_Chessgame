@@ -178,12 +178,17 @@ GameMatch* game_manager_find_match_by_player(GameManager *manager, int socket_fd
 void game_manager_remove_match(GameManager *manager, int match_id);
 void game_manager_cleanup_finished_matches(GameManager *manager);
 void game_manager_force_cleanup_stale_matches(GameManager *manager);
+int board_has_king(ChessBoard *board, PlayerColor color);
+
 
 // ============ GAME MATCH ============
 int game_match_make_move(GameMatch *match, int player_socket_fd, int player_id, const char *from, const char *to, PGconn *db);
 int game_match_check_end_condition(GameMatch *match, PGconn *db);
 void game_match_handle_surrender(GameMatch *match, int player_socket_fd, PGconn *db);
 void game_timeout_callback(int match_id);
+void force_white_win(GameMatch *match, PGconn *db);
+void force_black_win(GameMatch *match, PGconn *db);
+
 
 // ============ NETWORK ============
 void send_to_client(int socket_fd, const char *message);

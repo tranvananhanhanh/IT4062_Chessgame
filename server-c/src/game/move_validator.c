@@ -23,6 +23,11 @@ int validate_move(ChessBoard *board, Move *move, PlayerColor player_color) {
     
     move->piece = piece;
     move->captured_piece = dest_piece;
+    // ❌ King can never be captured
+    if (dest_piece == WHITE_KING || dest_piece == BLACK_KING) {
+        return 0;
+    }
+
     
     // Validate based on piece type
     int valid = 0;
@@ -57,54 +62,82 @@ int validate_move(ChessBoard *board, Move *move, PlayerColor player_color) {
 int validate_pawn_move(ChessBoard *board, Move *move) {
     int direction = is_white_piece(move->piece) ? -1 : 1;
     int start_row = is_white_piece(move->piece) ? 6 : 1;
-    
+
     int row_diff = move->to_row - move->from_row;
     int col_diff = abs(move->to_col - move->from_col);
-    
-    // Forward one square
+
+    /* =====================
+       Forward one square
+       ===================== */
     if (col_diff == 0 && row_diff == direction) {
         if (board->board[move->to_row][move->to_col] == EMPTY) {
-            // Check promotion
+
+            /* Promotion */
             if (move->to_row == 0 || move->to_row == 7) {
                 move->is_promotion = 1;
-                move->promotion_piece = is_white_piece(move->piece) ? WHITE_QUEEN : BLACK_QUEEN;
+
+                /* Default to Queen ONLY if not specified */
+                if (move->promotion_piece == '\0') {
+                    move->promotion_piece = is_white_piece(move->piece)
+                        ? WHITE_QUEEN
+                        : BLACK_QUEEN;
+                }
             }
             return 1;
         }
     }
-    
-    // Forward two squares from start
-    if (col_diff == 0 && row_diff == 2 * direction && move->from_row == start_row) {
+
+    /* =====================
+       Forward two squares
+       ===================== */
+    if (col_diff == 0 &&
+        row_diff == 2 * direction &&
+        move->from_row == start_row) {
+
         int middle_row = move->from_row + direction;
+
         if (board->board[middle_row][move->from_col] == EMPTY &&
             board->board[move->to_row][move->to_col] == EMPTY) {
-            // Set en passant target
+
             board->en_passant_file = move->from_col;
             board->en_passant_rank = middle_row;
             return 1;
         }
     }
-    
-    // Capture diagonally
+
+    /* =====================
+       Capture diagonally
+       ===================== */
     if (col_diff == 1 && row_diff == direction) {
+
+        /* Normal capture */
         if (board->board[move->to_row][move->to_col] != EMPTY) {
+
+            /* Promotion */
             if (move->to_row == 0 || move->to_row == 7) {
                 move->is_promotion = 1;
-                move->promotion_piece = is_white_piece(move->piece) ? WHITE_QUEEN : BLACK_QUEEN;
+
+                if (move->promotion_piece == '\0') {
+                    move->promotion_piece = is_white_piece(move->piece)
+                        ? WHITE_QUEEN
+                        : BLACK_QUEEN;
+                }
             }
             return 1;
         }
-        
-        // En passant
-        if (move->to_col == board->en_passant_file && 
+
+        /* En passant */
+        if (move->to_col == board->en_passant_file &&
             move->to_row == board->en_passant_rank) {
+
             move->is_en_passant = 1;
             return 1;
         }
     }
-    
+
     return 0;
 }
+
 
 int validate_knight_move(ChessBoard *board, Move *move) {
     (void)board;  // Suppress unused parameter warning

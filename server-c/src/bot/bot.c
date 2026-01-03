@@ -169,7 +169,12 @@ void handle_bot_move(
         }
     }
 
-    // Validate move (optional: add is_legal_move nếu cần)
+    if (!validate_move(&match->board, &pm, COLOR_WHITE)) {
+    printf("[ERROR] Invalid player move rejected: %s\n", player_move);
+    pthread_mutex_unlock(&match->lock);
+    return;
+}
+
 
     execute_move(&match->board, &pm);
     
@@ -219,8 +224,20 @@ void handle_bot_move(
                 }
             }
         }
+        if (!validate_move(&match->board, &bm, COLOR_BLACK)) {
+    printf("[ERROR] Invalid bot move rejected: %s\n", bot_move);
 
-        execute_move(&match->board, &bm);
+    // Bot đi sai → coi như bot thua
+    match->status = GAME_FINISHED;
+    match->result = RESULT_WHITE_WIN;
+
+    pthread_mutex_unlock(&match->lock);
+    return;
+}
+
+execute_move(&match->board, &bm);
+
+
         
         // Save bot move with FEN after bot's move
         char fen_after_bot[FEN_MAX_LENGTH];

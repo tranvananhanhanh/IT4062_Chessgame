@@ -171,33 +171,36 @@ void game_manager_remove_match(GameManager *manager, int match_id) {
     pthread_mutex_unlock(&manager->lock);
 }
 
-int game_match_make_move(GameMatch *match, int player_socket_fd, int player_id, const char *from, const char *to, PGconn *db) {
+int game_match_make_move(GameMatch *match,
+                         int player_socket_fd,
+                         int player_id,
+                         const char *from,
+                         const char *to,
+                         PGconn *db)
+{
     pthread_mutex_lock(&match->lock);
-    
-    // ✅ CHECK GAME STATE FIRST - Game must be in PLAYING state
+
+    /* 1️⃣ CHECK GAME STATE */
     if (match->status != GAME_PLAYING) {
         char error[100];
-        if (match->status == GAME_FINISHED) {
+        if (match->status == GAME_FINISHED)
             snprintf(error, sizeof(error), "ERROR|Game has already ended\n");
-        } else if (match->status == GAME_PAUSED) {
+        else if (match->status == GAME_PAUSED)
             snprintf(error, sizeof(error), "ERROR|Game is paused\n");
-        } else if (match->status == GAME_WAITING) {
+        else if (match->status == GAME_WAITING)
             snprintf(error, sizeof(error), "ERROR|Waiting for opponent\n");
-        } else {
+        else
             snprintf(error, sizeof(error), "ERROR|Invalid game state\n");
-        }
+
         send_to_client(player_socket_fd, error);
         pthread_mutex_unlock(&match->lock);
-        printf("[Move] Rejected: match %d not in PLAYING state (status=%d)\n", 
-               match->match_id, match->status);
         return 0;
     }
-    
-    // Determine which player is making the move
+
+    /* 2️⃣ IDENTIFY PLAYER */
     Player *current_player = NULL;
     Player *opponent = NULL;
-    
-    // Prioritize player_id check if provided (for API calls)
+
     if (player_id > 0) {
         if (match->white_player.user_id == player_id) {
             current_player = &match->white_player;
@@ -210,7 +213,6 @@ int game_match_make_move(GameMatch *match, int player_socket_fd, int player_id, 
             return 0;
         }
     } else {
-        // Fallback to socket_fd check (for CLI)
         if (match->white_player.socket_fd == player_socket_fd) {
             current_player = &match->white_player;
             opponent = &match->black_player;
@@ -222,69 +224,141 @@ int game_match_make_move(GameMatch *match, int player_socket_fd, int player_id, 
             return 0;
         }
     }
-    
-    // Check it's player's turn
-    if ((match->board.current_turn == COLOR_WHITE && current_player->color != COLOR_WHITE) ||
-        (match->board.current_turn == COLOR_BLACK && current_player->color != COLOR_BLACK)) {
+
+    /* 3️⃣ CHECK TURN */
+    if ((match->board.current_turn == COLOR_WHITE &&
+         current_player->color != COLOR_WHITE) ||
+        (match->board.current_turn == COLOR_BLACK &&
+         current_player->color != COLOR_BLACK)) {
         pthread_mutex_unlock(&match->lock);
         send_to_client(player_socket_fd, "ERROR|Not your turn\n");
         return 0;
     }
-    
-    // Parse move
+
+    /* 4️⃣ PARSE MOVE */
     Move move;
     notation_to_coords(from, &move.from_row, &move.from_col);
     notation_to_coords(to, &move.to_row, &move.to_col);
+
     move.piece = match->board.board[move.from_row][move.from_col];
     move.captured_piece = match->board.board[move.to_row][move.to_col];
     move.is_castling = 0;
     move.is_en_passant = 0;
     move.is_promotion = 0;
     move.promotion_piece = 0;
-    
-    // Validate move
+
+    /* 🔒 FAIL-SAFE #1: NEVER ALLOW KING CAPTURE */
+    if (move.captured_piece == WHITE_KING ||
+        move.captured_piece == BLACK_KING) {
+        pthread_mutex_unlock(&match->lock);
+        send_to_client(player_socket_fd,
+                       "ERROR|Illegal move (cannot capture king)\n");
+        return 0;
+    }
+
+    /* 5️⃣ VALIDATE MOVE */
     if (!validate_move(&match->board, &move, current_player->color)) {
         pthread_mutex_unlock(&match->lock);
         send_to_client(player_socket_fd, "ERROR|Invalid move\n");
         return 0;
     }
-    
-    // Execute move
+
+    /* 🔒 FAIL-SAFE #2: BOARD MUST STILL HAVE BOTH KINGS */
+    if (!board_has_king(&match->board, COLOR_WHITE) ||
+        !board_has_king(&match->board, COLOR_BLACK)) {
+        pthread_mutex_unlock(&match->lock);
+        send_to_client(player_socket_fd,
+                       "ERROR|Invalid board state\n");
+        return 0;
+    }
+
+    /* 6️⃣ EXECUTE MOVE */
     execute_move(&match->board, &move);
-    
-    // Handle timer: pause current player's timer and resume opponent's timer
-    // Note: In chess, each player has their own timer that runs when it's their turn
-    // For simplicity, we'll use one timer per match that resets on each move
-    // In a real implementation, you'd have separate timers for each player
-    
-    // Save move to database
+
+    /* 7️⃣ SAVE MOVE TO DB */
     char notation[16];
-    sprintf(notation, "%s%s", from, to);
-    history_save_move(db, match->match_id, current_player->user_id, notation, match->board.fen);
-    
-    // Send success to current player
+    snprintf(notation, sizeof(notation), "%s%s", from, to);
+    history_save_move(db,
+                      match->match_id,
+                      current_player->user_id,
+                      notation,
+                      match->board.fen);
+
+    /* 8️⃣ SEND RESPONSES */
     char response[BUFFER_SIZE];
-    sprintf(response, "MOVE_SUCCESS|%s|%s\n", notation, match->board.fen);
+    snprintf(response, sizeof(response),
+             "MOVE_SUCCESS|%s|%s\n",
+             notation,
+             match->board.fen);
     send_to_client(player_socket_fd, response);
-    
-    // Broadcast to opponent (only if different socket - for CLI mode)
-    if (opponent->socket_fd != player_socket_fd && opponent->socket_fd > 0) {
-        sprintf(response, "OPPONENT_MOVE|%s|%s\n", notation, match->board.fen);
+
+    if (opponent->socket_fd > 0 &&
+        opponent->socket_fd != player_socket_fd) {
+        snprintf(response, sizeof(response),
+                 "OPPONENT_MOVE|%s|%s\n",
+                 notation,
+                 match->board.fen);
         send_to_client(opponent->socket_fd, response);
     }
-    
-    printf("[Match %d] Move: %s by %s (FEN: %s)\n", 
-           match->match_id, notation, current_player->username, match->board.fen);
-    
-    // Check game end
+
+    /* 9️⃣ CHECK GAME END */
     game_match_check_end_condition(match, db);
-    
+
     pthread_mutex_unlock(&match->lock);
-    
     return 1;
 }
 
+static void force_end_game(GameMatch *match,
+                           PGconn *db,
+                           int winner_id,
+                           const char *result_str)
+{
+    match->status = GAME_FINISHED;
+    match->end_time = time(NULL);
+    match->winner_id = winner_id;
+
+    history_update_match_result(db,
+                                match->match_id,
+                                result_str,
+                                winner_id);
+
+    timer_manager_stop_timer(&game_manager.timer_manager,
+                             match->match_id);
+
+    char msg[BUFFER_SIZE];
+    snprintf(msg, sizeof(msg),
+             "GAME_END|invalid_state|winner:%d\n",
+             winner_id);
+
+    broadcast_to_match(match, msg, -1);
+}
+void force_white_win(GameMatch *match, PGconn *db)
+{
+    force_end_game(match,
+                   db,
+                   match->white_player.user_id,
+                   "white_win");
+}
+void force_black_win(GameMatch *match, PGconn *db)
+{
+    force_end_game(match,
+                   db,
+                   match->black_player.user_id,
+                   "black_win");
+}
+
+
 int game_match_check_end_condition(GameMatch *match, PGconn *db) {
+
+    if (!board_has_king(&match->board, COLOR_WHITE)) {
+        force_black_win(match, db);
+        return 1;
+    }
+    if (!board_has_king(&match->board, COLOR_BLACK)) {
+        force_white_win(match, db);
+        return 1;
+    }
+
     PlayerColor next_player = match->board.current_turn;
     
     printf("[DEBUG] game_match_check_end_condition: match_id=%d, current_turn=%s\n", 
@@ -340,7 +414,8 @@ int game_match_check_end_condition(GameMatch *match, PGconn *db) {
     }
     
     // Check stalemate
-    if (is_stalemate(&match->board, next_player)) {
+    if (!is_king_in_check(&match->board, next_player) &&
+    is_stalemate(&match->board, next_player)){
         match->status = GAME_FINISHED;
         match->result = RESULT_DRAW;
         match->end_time = time(NULL);
