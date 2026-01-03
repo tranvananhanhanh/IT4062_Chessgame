@@ -10,7 +10,6 @@ typedef struct {
     int user_id;
     char username[64];
     struct GameMatch *current_match;
-    int is_bot_mode; // Thêm biến này để giữ session bot không bị disconnect
 } ClientSession;
 
 // Session management functions

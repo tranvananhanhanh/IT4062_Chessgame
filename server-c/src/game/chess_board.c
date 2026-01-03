@@ -1,6 +1,19 @@
 #include "game.h"
 #include <ctype.h>
 
+int board_has_king(ChessBoard *board, PlayerColor color)
+{
+    char king = (color == COLOR_WHITE) ? WHITE_KING : BLACK_KING;
+
+    for (int r = 0; r < 8; r++) {
+        for (int c = 0; c < 8; c++) {
+            if (board->board[r][c] == king)
+                return 1;
+        }
+    }
+    return 0;
+}
+
 void chess_board_init(ChessBoard *board) {
     // Rank 8 (Black)
     board->board[0][0] = BLACK_ROOK;
