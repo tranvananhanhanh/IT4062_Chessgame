@@ -339,7 +339,6 @@ class PvPUI:
 
         # ================= PAUSE / RESUME =================
         if msg == "GAME_PAUSED_BY_OPPONENT":
-            self.is_my_turn = False
             self.game_control.game_state = GameControlUI.STATE_PAUSED_BY_OPPONENT
             self.game_control.status_label.config(
                 text="Opponent paused the game", fg="orange"
