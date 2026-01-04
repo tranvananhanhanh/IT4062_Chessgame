@@ -1,6 +1,7 @@
 #include "protocol_handler.h"
 #include "game.h"
 #include "history.h"
+#include "database.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,6 +12,54 @@
 
 // External global variable
 extern GameManager game_manager;
+
+// ==================== AUTH & LEADERBOARD ====================
+
+void handle_register(ClientSession *session, char *username, char *password, char *email, PGconn *db) {
+    (void)email; // email not stored in current schema
+
+    int user_id = db_create_user(db, username, password);
+    if (user_id > 0) {
+        char response[128];
+        snprintf(response, sizeof(response), "REGISTER_OK|%d\n", user_id);
+        send(session->socket_fd, response, strlen(response), 0);
+    } else {
+        char error[] = "ERROR|Register failed\n";
+        send(session->socket_fd, error, strlen(error), 0);
+    }
+}
+
+void handle_login(ClientSession *session, char *username, char *password, PGconn *db) {
+    int user_id = db_verify_user(db, username, password);
+    if (user_id > 0) {
+        session->user_id = user_id;
+        strncpy(session->username, username, sizeof(session->username) - 1);
+        char response[128];
+        snprintf(response, sizeof(response), "LOGIN_SUCCESS|%d\n", user_id);
+        send(session->socket_fd, response, strlen(response), 0);
+    } else {
+        char error[] = "LOGIN_FAIL|Invalid credentials\n";
+        send(session->socket_fd, error, strlen(error), 0);
+    }
+}
+
+void handle_get_leaderboard(ClientSession *session, char *limit_param, PGconn *db) {
+    int limit = 10;
+    if (limit_param && strlen(limit_param) > 0) {
+        limit = atoi(limit_param);
+        if (limit <= 0 || limit > 100) {
+            limit = 10;
+        }
+    }
+
+    char output[4096];
+    if (db_get_top_players(db, limit, output, sizeof(output))) {
+        send(session->socket_fd, output, strlen(output), 0);
+    } else {
+        char error[] = "ERROR|Failed to fetch leaderboard\n";
+        send(session->socket_fd, error, strlen(error), 0);
+    }
+}
 
 // ==================== COMMAND HANDLERS ====================
 
@@ -983,7 +1032,16 @@ void protocol_handle_command(ClientSession *session, const char *buffer, PGconn 
     printf("[Protocol] Command: '%s' | Params: %d\n", command, num_params);
     
     // Route to appropriate handler
-    if (strcmp(command, "START_MATCH") == 0 && num_params >= 5) {
+    if (strcmp(command, "REGISTER") == 0 && num_params >= 3) {
+        handle_register(session, param1, param2, param3, db);
+    }
+    else if (strcmp(command, "LOGIN") == 0 && num_params >= 3) {
+        handle_login(session, param1, param2, db);
+    }
+    else if (strcmp(command, "GET_LEADERBOARD") == 0 && num_params >= 2) {
+        handle_get_leaderboard(session, param1, db);
+    }
+    else if (strcmp(command, "START_MATCH") == 0 && num_params >= 5) {
         handle_start_match(session, param1, param2, param3, param4, db);
     }
     else if (strcmp(command, "JOIN_MATCH") == 0 && num_params >= 4) {
