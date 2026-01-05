@@ -36,7 +36,7 @@ GameMatch* game_manager_create_match(GameManager *manager, Player white, Player 
     // Allocate and initialize match
     GameMatch *match = (GameMatch*)malloc(sizeof(GameMatch));
     match->match_id = match_id;
-    match->status = GAME_WAITING;  // ✅ Start as WAITING until opponent joins
+    match->status = GAME_WAITING;  
     match->white_player = white;
     match->black_player = black;
     match->start_time = time(NULL);
@@ -44,8 +44,12 @@ GameMatch* game_manager_create_match(GameManager *manager, Player white, Player 
     match->result = RESULT_NONE;
     match->winner_id = 0;
     match->draw_requester_id = 0;
-    match->rematch_id = 0;  // ✅ Initialize rematch_id
+    match->rematch_id = 0;  
 
+    // Initialize timers: 10 minutes each
+    match->white_time_remaining = 10 * 60;
+    match->black_time_remaining = 10 * 60;
+    match->last_move_time = time(NULL);
     
     chess_board_init(&match->board);
     pthread_mutex_init(&match->lock, NULL);
@@ -171,6 +175,31 @@ void game_manager_remove_match(GameManager *manager, int match_id) {
     pthread_mutex_unlock(&manager->lock);
 }
 
+static void force_end_game(GameMatch *match,
+                           PGconn *db,
+                           int winner_id,
+                           const char *result_str)
+{
+    match->status = GAME_FINISHED;
+    match->end_time = time(NULL);
+    match->winner_id = winner_id;
+
+    history_update_match_result(db,
+                                match->match_id,
+                                result_str,
+                                winner_id);
+
+    timer_manager_stop_timer(&game_manager.timer_manager,
+                             match->match_id);
+
+    char msg[BUFFER_SIZE];
+    snprintf(msg, sizeof(msg),
+             "GAME_END|invalid_state|winner:%d\n",
+             winner_id);
+
+    broadcast_to_match(match, msg, -1);
+}
+
 int game_match_make_move(GameMatch *match,
                          int player_socket_fd,
                          int player_id,
@@ -275,7 +304,42 @@ int game_match_make_move(GameMatch *match,
     /* 6️⃣ EXECUTE MOVE */
     execute_move(&match->board, &move);
 
-    /* 7️⃣ SAVE MOVE TO DB */
+    /* 6.5️⃣ UPDATE TIMER */
+    time_t now = time(NULL);
+    int time_used = now - match->last_move_time;
+    
+    // Deduct time from current player
+    if (current_player->color == COLOR_WHITE) {
+        match->white_time_remaining -= time_used;
+        match->white_time_remaining += 5;  // +5 seconds bonus
+        if (match->white_time_remaining <= 0) {
+            // White timeout
+            force_end_game(match, db, match->black_player.user_id, "timeout");
+            pthread_mutex_unlock(&match->lock);
+            return 1;
+        }
+    } else {
+        match->black_time_remaining -= time_used;
+        match->black_time_remaining += 5;  // +5 seconds bonus
+        if (match->black_time_remaining <= 0) {
+            // Black timeout
+            force_end_game(match, db, match->white_player.user_id, "timeout");
+            pthread_mutex_unlock(&match->lock);
+            return 1;
+        }
+    }
+    
+    match->last_move_time = now;
+
+    /* 7️⃣ SEND TIMER UPDATE */
+    char timer_msg[BUFFER_SIZE];
+    snprintf(timer_msg, sizeof(timer_msg),
+             "TIMER_UPDATE|%d|%d\n",
+             match->white_time_remaining,
+             match->black_time_remaining);
+    broadcast_to_match(match, timer_msg, -1);
+
+    /* 8️⃣ SAVE MOVE TO DB */
     char notation[16];
     snprintf(notation, sizeof(notation), "%s%s", from, to);
     history_save_move(db,
@@ -308,30 +372,6 @@ int game_match_make_move(GameMatch *match,
     return 1;
 }
 
-static void force_end_game(GameMatch *match,
-                           PGconn *db,
-                           int winner_id,
-                           const char *result_str)
-{
-    match->status = GAME_FINISHED;
-    match->end_time = time(NULL);
-    match->winner_id = winner_id;
-
-    history_update_match_result(db,
-                                match->match_id,
-                                result_str,
-                                winner_id);
-
-    timer_manager_stop_timer(&game_manager.timer_manager,
-                             match->match_id);
-
-    char msg[BUFFER_SIZE];
-    snprintf(msg, sizeof(msg),
-             "GAME_END|invalid_state|winner:%d\n",
-             winner_id);
-
-    broadcast_to_match(match, msg, -1);
-}
 void force_white_win(GameMatch *match, PGconn *db)
 {
     force_end_game(match,
