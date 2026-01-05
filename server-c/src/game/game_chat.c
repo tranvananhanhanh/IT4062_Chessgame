@@ -46,7 +46,7 @@ static void get_opponent_info(PGconn *db, int match_id, int my_user_id,
     
     // Get opponent username
     snprintf(query, sizeof(query), 
-             "SELECT username FROM users WHERE user_id = %d", 
+             "SELECT name FROM users WHERE user_id = %d", 
              *opponent_id);
     
     res = PQexec(db, query);
@@ -60,6 +60,8 @@ static void get_opponent_info(PGconn *db, int match_id, int my_user_id,
 void handle_game_chat(ClientSession *session, int match_id, const char *message, PGconn *db) {
     if (!session || !message || !db) return;
     
+    printf("[GameChat] User %d sending message to match %d: %s\n", session->user_id, match_id, message);
+    
     int opponent_id = -1;
     int opponent_fd = -1;
     char opponent_username[64] = {0};
@@ -67,15 +69,18 @@ void handle_game_chat(ClientSession *session, int match_id, const char *message,
     // Get opponent info from match
     get_opponent_info(db, match_id, session->user_id, &opponent_id, &opponent_fd, opponent_username);
     
+    printf("[GameChat] Opponent ID: %d, FD: %d, Name: %s\n", opponent_id, opponent_fd, opponent_username);
+    
     if (opponent_fd <= 0) {
         // Opponent not connected, silently ignore
+        printf("[GameChat] Opponent not connected (fd=%d), ignoring message\n", opponent_fd);
         return;
     }
     
     // Get sender's username
     char query[256];
     snprintf(query, sizeof(query), 
-             "SELECT username FROM users WHERE user_id = %d", 
+             "SELECT name FROM users WHERE user_id = %d", 
              session->user_id);
     
     PGresult *res = PQexec(db, query);
@@ -89,6 +94,8 @@ void handle_game_chat(ClientSession *session, int match_id, const char *message,
     // Format and send: GAME_CHAT_FROM|sender_username|message
     char buf[1024];
     snprintf(buf, sizeof(buf), "GAME_CHAT_FROM|%s|%s\n", sender_username, message);
+    
+    printf("[GameChat] Sending to opponent (fd=%d): %s\n", opponent_fd, buf);
     
     if (send(opponent_fd, buf, strlen(buf), 0) < 0) {
         // Failed to send, but don't report error to client
