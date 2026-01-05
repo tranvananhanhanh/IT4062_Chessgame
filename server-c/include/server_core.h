@@ -10,6 +10,7 @@
 int server_init(PGconn **db_conn);
 void server_start();
 void server_shutdown();
+void request_bot_move_async(int game_id, const char* fen);
 
 // Client handling
 void* client_handler(void *arg);

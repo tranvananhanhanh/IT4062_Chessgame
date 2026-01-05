@@ -2,7 +2,7 @@ import socket
 import select
 
 class PollClient:
-    def __init__(self, host='127.0.0.1', port=8888):
+    def __init__(self, host='0.tcp.ap.ngrok.io', port=18185):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect((host, port))
         self.sock.setblocking(False)

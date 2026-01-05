@@ -9,6 +9,12 @@
  * Bot Module - Handles bot game initialization and moves
  */
 
+/**
+ * Non-blocking bot request - sends FEN and returns socket fd
+ * Return: socket fd to monitor via poll(), or -1 on error
+ */
+int send_request_to_bot_nonblocking(const char *fen, const char *difficulty);
+
 void handle_mode_bot(
     ClientSession *session,
     char *user_id,

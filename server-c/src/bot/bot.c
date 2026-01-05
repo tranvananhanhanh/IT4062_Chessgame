@@ -14,6 +14,51 @@
 
 extern GameManager game_manager;
 
+/* ================= NON-BLOCKING BOT REQUEST ================= */
+/**
+ * Gửi yêu cầu đến Bot Server (không chờ phản hồi)
+ * Trả về socket fd để poll() theo dõi
+ * Trả về -1 nếu lỗi
+ */
+int send_request_to_bot_nonblocking(const char *fen, const char *difficulty) {
+    const char *host = getenv("BOT_HOST") ? getenv("BOT_HOST") : "127.0.0.1";
+    int port = getenv("BOT_PORT") ? atoi(getenv("BOT_PORT")) : 5001;
+
+    // 1. Tạo socket
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
+        perror("[Bot] socket()");
+        return -1;
+    }
+
+    // 2. Kết nối (Localhost nên connect rất nhanh)
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    
+    if (inet_pton(AF_INET, host, &addr.sin_addr) <= 0) {
+        close(sock);
+        return -1;
+    }
+
+    if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        perror("[Bot] connect()");
+        close(sock);
+        return -1;
+    }
+
+    // 3. Gửi dữ liệu FEN
+    char request[2048];
+    snprintf(request, sizeof(request), "%s|%s\n", fen, difficulty);
+    send(sock, request, strlen(request), 0);
+
+    printf("[Bot Non-blocking] Sent request to Bot (fd: %d): %s|%s\n", sock, fen, difficulty);
+
+    // 4. QUAN TRỌNG: Trả về socket để poll theo dõi
+    return sock;
+}
+
 /* ================= MODE BOT ================= */
 
 void handle_mode_bot(ClientSession *session, char *user_id, char *difficulty, PGconn *db) {
@@ -130,6 +175,67 @@ void handle_bot_move(
         match->board.current_turn != COLOR_WHITE) {
         pthread_mutex_unlock(&match->lock);
         return;
+    }
+
+    /* ===== PARSE PLAYER MOVE SAFELY WITH PROMOTION ===== */
+    if (strlen(player_move) < 4) {
+        pthread_mutex_unlock(&match->lock);
+        return;
+    }
+
+    char from[3] = { player_move[0], player_move[1], '\0' };
+    char to[3]   = { player_move[2], player_move[3], '\0' };
+
+    Move pm = {0};
+    notation_to_coords(from, &pm.from_row, &pm.from_col);
+    notation_to_coords(to, &pm.to_row, &pm.to_col);
+
+    pm.piece = match->board.board[pm.from_row][pm.from_col];
+    pm.captured_piece = match->board.board[pm.to_row][pm.to_col];
+
+    // Parse promotion suffix if exists
+    pm.is_promotion = 0;
+    pm.promotion_piece = '\0';
+    if (strlen(player_move) == 5) {
+        char suffix = player_move[4];
+        if (suffix == 'q' || suffix == 'r' || suffix == 'b' || suffix == 'n') {
+            pm.promotion_piece = (suffix == 'q') ? 'Q' : (suffix == 'r') ? 'R' : 
+                                 (suffix == 'b') ? 'B' : 'N';
+            char piece_type = toupper(pm.piece);
+            int last_rank = 0;
+            if (piece_type == 'P' && pm.to_row == last_rank) {
+                pm.is_promotion = 1;
+                printf("[DEBUG] Promotion detected: %s -> promote to %c\n", player_move, pm.promotion_piece);
+            }
+        }
+    }
+
+    if (!validate_move(&match->board, &pm, COLOR_WHITE)) {
+        printf("[ERROR] Invalid player move rejected: %s\n", player_move);
+        pthread_mutex_unlock(&match->lock);
+        return;
+    }
+
+    execute_move(&match->board, &pm);
+    
+    // Save player move with FEN after move
+    char fen_after_player[FEN_MAX_LENGTH];
+    chess_board_to_fen(&match->board, fen_after_player);
+    history_save_move(db, match_id, session->user_id, player_move, fen_after_player);
+
+    /* ===== NON-BLOCKING BOT REQUEST ===== */
+    char fen_before_bot[FEN_MAX_LENGTH];
+    chess_board_to_fen(&match->board, fen_before_bot);
+    
+    // Đăng ký yêu cầu bot (không chờ)
+    // Declare external function from server_core.c
+    extern void register_bot_request(int match_id, int user_id, const char* fen, const char* difficulty);
+    register_bot_request(match_id, session->user_id, fen_before_bot, difficulty);
+    
+    printf("[Bot Non-blocking] Request sent for match %d, returning immediately\n", match_id);
+    
+    pthread_mutex_unlock(&match->lock);
+}
     }
 
     /* ===== PARSE PLAYER MOVE SAFELY WITH PROMOTION ===== */
