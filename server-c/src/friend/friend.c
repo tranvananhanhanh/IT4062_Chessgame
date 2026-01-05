@@ -1,15 +1,11 @@
 // friend.c - Friend system handlers
 #include "friend.h"
-#include "game.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <pthread.h>
 #include "online_users.h"
-
-// External global variables
-extern GameManager game_manager;
 
 
 void handle_friend_request(ClientSession *session, int num_params, char *param1, char *param2, PGconn *db) {
@@ -128,21 +124,14 @@ void handle_friend_list(ClientSession *session, int num_params, char *param1, PG
 
             const char *status = "offline";
 
-            int friend_socket = -1;
             pthread_mutex_lock(&online_users.lock);
             for (int j = 0; j < online_users.count; j++) {
                 if (online_users.entries[j].user_id == atoi(fid)) {
-                    friend_socket = online_users.entries[j].socket_fd;
                     status = "online";
                     break;
                 }
             }
             pthread_mutex_unlock(&online_users.lock);
-
-            // Check if in game
-            if (friend_socket != -1 && game_manager_find_match_by_player(&game_manager, friend_socket) != NULL) {
-                status = "ingame";
-            }
 
             char entry[128];
             snprintf(entry, sizeof(entry), "%s:%s:%s", fid, fname, status);

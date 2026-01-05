@@ -268,10 +268,14 @@ class ReplayViewer:
         button_frame = tk.Frame(self.master, bg="#f0f0f0")
         button_frame.pack(pady=10)
         
-        tk.Button(button_frame, text="◀", font=("Helvetica", 14, "bold"),
-                 width=5, command=self.previous_move).pack(side="left", padx=10)
-        tk.Button(button_frame, text="▶", font=("Helvetica", 14, "bold"),
-                 width=5, command=self.next_move).pack(side="left", padx=10)
+        tk.Button(button_frame, text="⏮ First", font=("Helvetica", 10, "bold"),
+                 width=10, command=self.first_move).pack(side="left", padx=5)
+        tk.Button(button_frame, text="◀ Previous", font=("Helvetica", 10, "bold"),
+                 width=10, command=self.previous_move).pack(side="left", padx=5)
+        tk.Button(button_frame, text="Next ▶", font=("Helvetica", 10, "bold"),
+                 width=10, command=self.next_move).pack(side="left", padx=5)
+        tk.Button(button_frame, text="Last ⏭", font=("Helvetica", 10, "bold"),
+                 width=10, command=self.last_move).pack(side="left", padx=5)
     
     def show_position(self):
         """Display current position"""
