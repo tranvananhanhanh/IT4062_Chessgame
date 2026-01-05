@@ -1,8 +1,13 @@
 import socket
 import select
+import os
 
 class PollClient:
-    def __init__(self, host='127.0.0.1', port=8888):
+    def __init__(self, host=None, port=None):
+        # Allow overriding host/port via args or env; strip any accidental scheme
+        host = host or os.getenv("CHESS_SERVER_HOST", "0.tcp.ap.ngrok.io").replace("tcp://", "")
+        port = int(port or os.getenv("CHESS_SERVER_PORT", 11527))
+
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect((host, port))
         self.sock.setblocking(False)

@@ -23,7 +23,8 @@ GAME_SRCS = $(GAME_DIR)/chess_board.c \
             $(GAME_DIR)/move_validator.c \
             $(GAME_DIR)/move_executor.c \
             $(GAME_DIR)/game_state.c \
-            $(GAME_DIR)/game_manager.c
+            $(GAME_DIR)/game_manager.c \
+            $(GAME_DIR)/game_chat.c
 
 TIMER_SRCS = $(TIMER_DIR)/timer.c
 
@@ -98,6 +99,11 @@ directories:
 	@mkdir -p $(BUILD_DIR)/src/control
 	@mkdir -p $(BUILD_DIR)/src/session
 	@mkdir -p $(BUILD_DIR)/src/server
+	@mkdir -p $(BUILD_DIR)/src/db
+	@mkdir -p $(BUILD_DIR)/src/elo
+	@mkdir -p $(BUILD_DIR)/src/login
+	@mkdir -p $(BUILD_DIR)/src/matchmaking
+	@mkdir -p $(BUILD_DIR)/src/chat
 	@mkdir -p $(BUILD_DIR)/src/db
 	@mkdir -p $(BUILD_DIR)/src/elo
 	@mkdir -p $(BUILD_DIR)/src/login

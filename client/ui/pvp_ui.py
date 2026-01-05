@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import messagebox
 from ui.gamecontrol_ui import GameControlUI
+from ui.game_chat_ui import GameChatUI
 
 class PvPUI:
     def __init__(self, master, match_id, my_color, opponent_name, client, on_back, user_id):
@@ -72,6 +73,14 @@ class PvPUI:
         self.canvas = tk.Canvas(left_panel, width=600, height=600, bg="#ffffff")
         self.canvas.pack()
         self.canvas.bind("<Button-1>", self.on_click)
+        
+        # Center panel - Chat
+        self.game_chat = GameChatUI(
+            container,
+            self.match_id,
+            self.client
+        )
+        self.game_chat.pack(side="left", fill="y", padx=10, pady=20)
         
         # Right panel - Controls (tách ra GameControlUI)
         self.game_control = GameControlUI(
@@ -308,6 +317,16 @@ class PvPUI:
 
         msg = msg.strip()
         print(f"[PvP] Received: {msg}")
+
+        # ================= CHAT MESSAGES =================
+        if msg.startswith("GAME_CHAT_FROM"):
+            parts = msg.split('|', 2)
+            if len(parts) >= 3:
+                sender_name = parts[1]
+                chat_message = parts[2]
+                if self.game_chat and self.game_chat.winfo_exists():
+                    self.game_chat.add_message(sender_name, chat_message, is_self=False)
+            return
 
         # ================= ERROR =================
         if msg.startswith("ERROR"):
