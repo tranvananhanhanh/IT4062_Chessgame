@@ -5,13 +5,21 @@
 #include <string.h>
 
 PGconn* db_connect() {
-    const char *conninfo = 
-        "host=localhost "
-        "port=5432 "
-        "dbname=chess_db "
-        "user=postgres "
-        "password=0000 "
-        "connect_timeout=5";
+    // Default back to the previous working settings (host 192.168.1.7, port 5433, db=postgres)
+    // but still allow overriding via environment variables.
+    // First try environment variables, otherwise fall back to a local default.
+    const char *host = getenv("DB_HOST") ? getenv("DB_HOST") : "localhost";
+    const char *port = getenv("DB_PORT") ? getenv("DB_PORT") : "5432";
+    const char *dbname = getenv("DB_NAME") ? getenv("DB_NAME") : "chess_db";
+    const char *user = getenv("DB_USER") ? getenv("DB_USER") : "postgres";
+    const char *password = getenv("DB_PASSWORD") ? getenv("DB_PASSWORD") : "postgres";
+
+    char conninfo[512];
+    snprintf(conninfo, sizeof(conninfo),
+        "host=%s port=%s dbname=%s user=%s password=%s connect_timeout=10",
+        host, port, dbname, user, password);
+
+    printf("[DB] Connecting with: host=%s port=%s db=%s user=%s\n", host, port, dbname, user);
 
     PGconn *conn = PQconnectdb(conninfo);
 

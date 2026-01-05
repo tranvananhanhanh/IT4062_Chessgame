@@ -6,6 +6,7 @@ from ui.pvp_ui import PvPUI
 from ui.friend_ui import FriendUI
 from ui.login_ui import LoginUI
 from ui.history_ui import HistoryUI
+from ui.leaderboard_ui import LeaderboardUI
 import sys
 import queue  # ← THÊM: Cho thread-safe message forwarding
 
@@ -110,6 +111,7 @@ class ChessApp:
         self.create_button(frame, "Kết bạn", self.friend_request_frame).pack(pady=5)
         self.create_button(frame, "Chơi với Bot", self.start_bot_game).pack(pady=5)
         self.create_button(frame, "Xem lịch sử (History)", self.show_history).pack(pady=5)
+        self.create_button(frame, "Bảng xếp hạng", self.show_leaderboard).pack(pady=5)
         self.create_button(frame, "Logout", self.logout).pack(pady=(20, 0))
 
     # ===== Friend Request =====
@@ -340,3 +342,27 @@ class ChessApp:
         self.history_ui = HistoryUI(self.master, self.user_id, self.client, self.main_menu)
         self.current_frame = self.history_ui.frame
         self.master.update_idletasks()
+
+    def show_leaderboard(self):
+        """Show leaderboard UI"""
+        self.clear()
+        try:
+            if sys.platform == "darwin":
+                self.master.attributes("-fullscreen", True)
+            elif sys.platform == "win32":
+                self.master.state("zoomed")
+            else:
+                self.master.attributes('-zoomed', True)
+        except:
+            self.master.geometry("1200x800")
+
+        self.leaderboard_ui = LeaderboardUI(self.master, self.client, self._back_from_leaderboard)
+        self.current_frame = self.leaderboard_ui.frame
+        self.add_listener(self.leaderboard_ui)
+        self.leaderboard_ui.refresh()
+        self.master.update_idletasks()
+
+    def _back_from_leaderboard(self):
+        if hasattr(self, 'leaderboard_ui') and self.leaderboard_ui:
+            self.remove_listener(self.leaderboard_ui)
+        self.main_menu()
