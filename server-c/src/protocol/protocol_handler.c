@@ -12,6 +12,7 @@
 #include "elo_leaderboard.h"
 #include "elo_history.h"
 #include "chat.h"
+#include "game_chat.h"
 #include "email_helper.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -99,6 +100,10 @@ void protocol_handle_command(ClientSession *session, const char *buffer, PGconn 
     } else if (strcmp(command, "CHAT") == 0) {
         // CHAT|to_user|message
         handle_chat(session, num_params, param1, param2);
+    } else if (strcmp(command, "GAME_CHAT") == 0) {
+        // GAME_CHAT|match_id|message
+        int match_id = atoi(param1);
+        handle_game_chat(session, match_id, param2, db);
     }
     // Match/game logic
     else if (strcmp(command, "CREATE_MATCH") == 0) {

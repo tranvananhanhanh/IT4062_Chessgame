@@ -61,6 +61,10 @@
 #define CMD_REMATCH_ACCEPT "REMATCH_ACCEPT"
 #define CMD_REMATCH_DECLINE "REMATCH_DECLINE"
 
+// In-game chat command
+#define CMD_GAME_CHAT "GAME_CHAT"
+#define RESP_GAME_CHAT_FROM "GAME_CHAT_FROM"
+
 // Response messages
 #define RESP_OK "OK"
 #define RESP_ERROR "ERROR"
