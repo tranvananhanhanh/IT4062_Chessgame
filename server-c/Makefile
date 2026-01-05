@@ -1,10 +1,10 @@
 CC = gcc
 # macOS (Homebrew) - comment out if on Linux
-CFLAGS = -Wall -Wextra -g -Iinclude -I/usr/local/Cellar/postgresql@14/14.11_1/include/postgresql@14 -pthread
-LDFLAGS = -L/usr/local/Cellar/postgresql@14/14.11_1/lib/postgresql@14 -lpq -lpthread -lm
+#CFLAGS = -Wall -Wextra -g -Iinclude -I/usr/local/Cellar/postgresql@14/14.11_1/include/postgresql@14 -pthread
+#LDFLAGS = -L/usr/local/Cellar/postgresql@14/14.11_1/lib/postgresql@14 -lpq -lpthread -lm
 # Linux - uncomment if on Linux
-#CFLAGS = -Wall -Wextra -g -Iinclude -I/usr/include/postgresql -pthread
-#LDFLAGS = -L/usr/lib/x86_64-linux-gnu -lpq -lpthread -lm
+CFLAGS = -Wall -Wextra -g -Iinclude -I/usr/include/postgresql -pthread
+LDFLAGS = -L/usr/lib/x86_64-linux-gnu -lpq -lpthread -lm
 
 # Directories
 SRC_DIR = src
@@ -60,7 +60,8 @@ ELO_SRCS = $(SRC_DIR)/elo/elo_calc.c \
            $(SRC_DIR)/elo/elo_leaderboard.c
 
 LOGIN_DIR = $(SRC_DIR)/login
-LOGIN_SRCS = $(LOGIN_DIR)/login.c $(LOGIN_DIR)/logout.c $(LOGIN_DIR)/resgister.c
+LOGIN_SRCS = $(LOGIN_DIR)/login.c $(LOGIN_DIR)/logout.c $(LOGIN_DIR)/resgister.c \
+			 $(LOGIN_DIR)/email_helper.c
 
 MATCHMAKING_DIR = $(SRC_DIR)/matchmaking
 MATCHMAKING_SRCS = $(MATCHMAKING_DIR)/matchmaking.c

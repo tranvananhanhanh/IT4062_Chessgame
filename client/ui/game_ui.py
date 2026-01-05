@@ -4,7 +4,8 @@ from network.poll_client import PollClient
 from ui.gamebot_ui import GameBotUI
 from ui.pvp_ui import PvPUI
 from ui.friend_ui import FriendUI
-from ui.login_ui import LoginUI
+from ui.login_ui import LoginUI, RegisterUI
+from ui.login_ui import LoginUI, RegisterUI, ForgotPasswordUI
 from ui.history_ui import HistoryUI
 import sys
 import queue  # ← THÊM: Cho thread-safe message forwarding
@@ -41,6 +42,7 @@ class ChessApp:
 
         self.current_frame = None
         self.login_ui = None
+        self.register_ui = None
         self.pending_action = None
         self.pending_context = {}
         self.listeners = []
@@ -54,6 +56,9 @@ class ChessApp:
         if self.login_ui:
             self.login_ui.destroy()
             self.login_ui = None
+        if self.register_ui:
+            self.register_ui.destroy()
+            self.register_ui = None
 
     def create_button(self, parent, text, command):
         return tk.Button(
@@ -83,7 +88,24 @@ class ChessApp:
     def login_frame(self):
         self.clear()
         self.login_ui = LoginUI(self.master, self.login, self.register)
+        self.login_ui.set_switch_callback(self.register_frame)
+        self.login_ui.set_forgot_callback(self.forgot_password_frame)
         self.current_frame = self.login_ui.frame
+    
+    def register_frame(self):
+        self.clear()
+        self.register_ui = RegisterUI(self.master, self.register, self.login_frame)
+        self.current_frame = self.register_ui.frame
+
+    def forgot_password_frame(self):
+        self.clear()
+        self.forgot_ui = ForgotPasswordUI(
+            self.master,
+            self.request_otp,
+            self.reset_password,
+            self.login_frame
+        )
+        self.current_frame = self.forgot_ui.frame
 
     def login(self, username, password):
         self.client.send(f"LOGIN|{username}|{password}\n")
@@ -94,6 +116,18 @@ class ChessApp:
     def register(self, username, password, email):
         self.client.send(f"REGISTER|{username}|{password}|{email}\n")
         self.pending_action = "register"
+        self.show_status("")
+
+    # ===== Forgot Password =====
+    def request_otp(self, email):
+        self.client.send(f"FORGOT_PASSWORD|{email}\n")
+        self.pending_action = "forgot"
+        self.pending_context = {"email": email}
+        self.show_status("")
+
+    def reset_password(self, user_id, otp, new_password):
+        self.client.send(f"RESET_PASSWORD|{user_id}|{otp}|{new_password}\n")
+        self.pending_action = "reset_password"
         self.show_status("")
 
     # ===== Main Menu =====
@@ -175,9 +209,39 @@ class ChessApp:
             self.pending_context = {}
         elif self.pending_action == "register":
             if resp.startswith("REGISTER_OK"):
-                self.show_status("Đăng ký thành công!")
+                # Hiển thông báo thành công rồi chuyển về login
+                if hasattr(self, 'register_ui') and self.register_ui:
+                    self.register_ui.show_success_and_redirect()
+                else:
+                    messagebox.showinfo("Thành công", "Đăng ký thành công! Vui lòng đăng nhập.")
+                    self.login_frame()
             else:
                 self.show_status("Register failed: " + resp)
+            self.pending_action = None
+            self.pending_context = {}
+        elif self.pending_action == "forgot":
+            if resp.startswith("OTP_SENT"):
+                parts = resp.split('|')
+                if len(parts) >= 3 and hasattr(self, 'forgot_ui') and self.forgot_ui:
+                    user_id = int(parts[1])
+                    email = parts[2]
+                    self.forgot_ui.show_step2(user_id, email)
+                    self.show_status("Mã OTP đã được gửi. Vui lòng kiểm tra email.")
+                else:
+                    self.show_status("Đã gửi OTP.")
+            else:
+                self.show_status("Gửi OTP thất bại: " + resp)
+            self.pending_action = None
+            self.pending_context = {}
+        elif self.pending_action == "reset_password":
+            if resp.startswith("PASSWORD_RESET_OK"):
+                if hasattr(self, 'forgot_ui') and self.forgot_ui:
+                    self.forgot_ui.show_success_and_redirect()
+                else:
+                    messagebox.showinfo("Thành công", "Đặt lại mật khẩu thành công! Vui lòng đăng nhập.")
+                    self.login_frame()
+            else:
+                self.show_status("Đặt lại mật khẩu thất bại: " + resp)
             self.pending_action = None
             self.pending_context = {}
         elif self.pending_action == "friend_request":

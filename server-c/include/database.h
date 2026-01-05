@@ -28,4 +28,10 @@ int db_update_user_stats(PGconn *conn, int user_id, const char *result);
 int db_verify_user(PGconn *conn, const char *username, const char *password);
 int db_get_user_info(PGconn *conn, int user_id, char *output, int output_size);
 
+// ==================== PASSWORD RESET ====================
+int db_get_user_email(PGconn *conn, const char *username, char *email, int email_size);
+int db_save_otp(PGconn *conn, int user_id, const char *otp);
+int db_verify_otp(PGconn *conn, int user_id, const char *otp);
+int db_reset_password(PGconn *conn, int user_id, const char *new_password, const char *otp);
+
 #endif // DATABASE_H

@@ -66,6 +66,9 @@ dist/
 .env.local
 .env.*.local
 
+# Credentials
+.credentials
+
 # ============================
 # C / GCC Build Files
 # ============================

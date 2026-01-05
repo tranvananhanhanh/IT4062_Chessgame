@@ -1,5 +1,6 @@
 // protocol_handler.c - Protocol command router
 #include "protocol_handler.h"
+#include "database.h"
 #include "login.h"
 #include "match.h"
 #include "bot.h"
@@ -11,6 +12,7 @@
 #include "elo_leaderboard.h"
 #include "elo_history.h"
 #include "chat.h"
+#include "email_helper.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -60,6 +62,40 @@ void protocol_handle_command(ClientSession *session, const char *buffer, PGconn 
         handle_register_validate(session, num_params, param1, param2, param3, db);
     } else if (strcmp(command, "REGISTER_VALIDATE") == 0) {
         handle_register_validate(session, num_params, param1, param2, param3, db);
+    } else if (strcmp(command, "FORGOT_PASSWORD") == 0) {
+        // FORGOT_PASSWORD|email
+        char email[128] = {0};
+        int user_id = db_get_user_email(db, param1, email, sizeof(email));
+        
+        if (user_id > 0) {
+            char otp[7];
+            generate_otp(otp, 6);
+            
+            if (db_save_otp(db, user_id, otp)) {
+                if (send_otp_email(email, otp)) {
+                    char resp[256];
+                    snprintf(resp, sizeof(resp), "OTP_SENT|%d|%s\n", user_id, email);
+                    send(session->socket_fd, resp, strlen(resp), 0);
+                    printf("[Password Reset] OTP sent to %s for user_id %d\n", email, user_id);
+                } else {
+                    send(session->socket_fd, "ERROR|Failed to send OTP email\n", 32, 0);
+                }
+            } else {
+                send(session->socket_fd, "ERROR|Failed to save OTP\n", 26, 0);
+            }
+        } else {
+            send(session->socket_fd, "ERROR|User not found or no email registered\n", 45, 0);
+        }
+    } else if (strcmp(command, "RESET_PASSWORD") == 0) {
+        // RESET_PASSWORD|user_id|otp|new_password
+        int user_id = atoi(param1);
+        
+        if (db_reset_password(db, user_id, param3, param2)) {
+            send(session->socket_fd, "PASSWORD_RESET_OK\n", 18, 0);
+            printf("[Password Reset] Password reset successful for user_id %d\n", user_id);
+        } else {
+            send(session->socket_fd, "ERROR|Invalid or expired OTP\n", 30, 0);
+        }
     } else if (strcmp(command, "CHAT") == 0) {
         // CHAT|to_user|message
         handle_chat(session, num_params, param1, param2);

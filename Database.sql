@@ -18,6 +18,22 @@ CREATE TABLE users (
 );
 
 -- ===========================================
+-- TABLE: password_reset
+-- ===========================================
+CREATE TABLE password_reset (
+    reset_id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL,
+    otp VARCHAR(10) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_reset_user FOREIGN KEY (user_id)
+        REFERENCES users(user_id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+);
+
+-- ===========================================
 -- TABLE: match_game
 -- ===========================================
 CREATE TABLE match_game (
