@@ -44,7 +44,8 @@ int history_get_user_matches(PGconn *conn, int user_id, MatchHistoryItem *items,
         "mg.result, mp1.color, "
         "to_char(mg.starttime, 'YYYY-MM-DD HH24:MI:SS') as start_time, "
         "to_char(mg.endtime, 'YYYY-MM-DD HH24:MI:SS') as end_time, "
-        "(SELECT COUNT(*) FROM move WHERE match_id = mg.match_id) as move_count "
+        "(SELECT COUNT(*) FROM move WHERE match_id = mg.match_id) as move_count, "
+        "mg.winner_id "
         "FROM match_game mg "
         "JOIN match_player mp1 ON mg.match_id = mp1.match_id AND mp1.user_id = %d "
         "JOIN match_player mp2 ON mg.match_id = mp2.match_id AND mp2.user_id != %d "
@@ -71,18 +72,17 @@ int history_get_user_matches(PGconn *conn, int user_id, MatchHistoryItem *items,
         
         // Determine result from player's perspective
         const char *db_result = PQgetvalue(res, i, 3);
-        const char *player_color = PQgetvalue(res, i, 4);
+        int winner_id = atoi(PQgetvalue(res, i, 8));
         
         if (strcmp(db_result, "draw") == 0 || strcmp(db_result, "stalemate") == 0) {
             strcpy(items[i].result, "draw");
-        } else if ((strcmp(db_result, "white_win") == 0 && strcmp(player_color, "white") == 0) ||
-                   (strcmp(db_result, "black_win") == 0 && strcmp(player_color, "black") == 0)) {
+        } else if (winner_id == user_id) {
             strcpy(items[i].result, "win");
         } else {
             strcpy(items[i].result, "loss");
         }
         
-        strcpy(items[i].player_color, player_color);
+        strcpy(items[i].player_color, PQgetvalue(res, i, 4));
         strcpy(items[i].start_time, PQgetvalue(res, i, 5));
         strcpy(items[i].end_time, PQgetvalue(res, i, 6));
         items[i].move_count = atoi(PQgetvalue(res, i, 7));

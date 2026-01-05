@@ -1,5 +1,5 @@
 CC = gcc
-# # macOS (Homebrew) - comment out if on Linux
+# macOS (Homebrew) - comment out if on Linux
 # CFLAGS = -Wall -Wextra -g -Iinclude -I/usr/local/Cellar/postgresql@14/14.11_1/include/postgresql@14 -pthread
 # LDFLAGS = -L/usr/local/Cellar/postgresql@14/14.11_1/lib/postgresql@14 -lpq -lpthread -lm
 # Linux - uncomment if on Linux
