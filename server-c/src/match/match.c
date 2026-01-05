@@ -49,14 +49,6 @@ void handle_start_match(ClientSession *session, char *param1, char *param2,
         sprintf(response, "MATCH_CREATED|%d|%s\n", match->match_id, match->board.fen);
         send(session->socket_fd, response, strlen(response), 0);
         
-        // Send initial timer
-        char timer_msg[BUFFER_SIZE];
-        snprintf(timer_msg, sizeof(timer_msg),
-                 "TIMER_UPDATE|%d|%d\n",
-                 match->white_time_remaining,
-                 match->black_time_remaining);
-        send(session->socket_fd, timer_msg, strlen(timer_msg), 0);
-        
         printf("[Match] Match %d created successfully (waiting for opponent)\n", match->match_id);
     } else {
         char error[] = "ERROR|Failed to create match\n";
@@ -139,14 +131,6 @@ void handle_join_match(ClientSession *session, char *param1, char *param2,
     char response[300];
     sprintf(response, "MATCH_JOINED|%d|%s\n", match_id, match->board.fen);
     send(session->socket_fd, response, strlen(response), 0);
-    
-    // Send initial timer
-    char timer_msg[BUFFER_SIZE];
-    snprintf(timer_msg, sizeof(timer_msg),
-             "TIMER_UPDATE|%d|%d\n",
-             match->white_time_remaining,
-             match->black_time_remaining);
-    send(session->socket_fd, timer_msg, strlen(timer_msg), 0);
     
     // Notify opponent
     int opponent_fd = (match->white_player.user_id == user_id) 

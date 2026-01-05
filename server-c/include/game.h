@@ -121,11 +121,6 @@ typedef struct GameMatch {
     int rematch_id;         // ID of new match if rematch accepted (0 if none)
     int rematch_requester_id;   // ID người xin rematch
 
-    // Timer for each player (10 minutes initial, +5 seconds per move)
-    int white_time_remaining;  // in seconds
-    int black_time_remaining;  // in seconds
-    time_t last_move_time;     // timestamp of last move
-
     pthread_mutex_t lock;
     char bot_difficulty[16]; // Difficulty for bot games ("easy", "hard", etc.)
 } GameMatch;
