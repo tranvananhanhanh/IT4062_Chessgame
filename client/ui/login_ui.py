@@ -26,8 +26,13 @@ class LoginUI:
         logo_frame.pack(pady=(0, 10))
         
         # Chess icon using Unicode
-        chess_label = tk.Label(logo_frame, text="♔ ♕ ♖", font=("Arial", 36), 
-                               bg='white', fg='#2c3e50')
+        try:
+            chess_label = tk.Label(logo_frame, text="♔ ♕ ♖", font=("Segoe UI Symbol", 36), 
+                                   bg='white', fg='#2c3e50')
+        except:
+            # Fallback if font not available
+            chess_label = tk.Label(logo_frame, text="CHESS", font=("Arial", 36, "bold"), 
+                                   bg='white', fg='#2c3e50')
         chess_label.pack()
         
         # Title
@@ -451,8 +456,13 @@ class RegisterUI:
         logo_frame.pack(pady=(0, 10))
         
         # Chess icon using Unicode
-        chess_label = tk.Label(logo_frame, text="♔ ♕ ♖", font=("Arial", 36), 
-                               bg='white', fg='#27ae60')
+        try:
+            chess_label = tk.Label(logo_frame, text="♔ ♕ ♖", font=("Segoe UI Symbol", 36), 
+                                   bg='white', fg='#27ae60')
+        except:
+            # Fallback if font not available
+            chess_label = tk.Label(logo_frame, text="CHESS", font=("Arial", 36, "bold"), 
+                                   bg='white', fg='#27ae60')
         chess_label.pack()
         
         # Title

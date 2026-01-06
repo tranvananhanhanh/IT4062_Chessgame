@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+from ui.notifications import show_toast
 
 class FriendUI:
     def __init__(self, master, user_id, on_back, client):
@@ -29,13 +30,14 @@ class FriendUI:
         container.pack(fill="both", expand=True)
 
         # ===== Title =====
-        tk.Label(
+        title_label = tk.Label(
             container,
-            text="♟️ CHESS FRIEND CENTER ♟️",
-            font=("Helvetica", 22, "bold"),
+            text="♟ CHESS FRIEND CENTER ♟",
+            font=("Arial", 22, "bold"),
             bg="#fdf2f8",
             fg="#1f2937"
-        ).pack(pady=(0, 18))
+        )
+        title_label.pack(pady=(0, 18))
 
         # ===== Main content =====
         content = tk.Frame(container, bg="#fdf2f8")
@@ -109,7 +111,7 @@ class FriendUI:
 
         tk.Label(
             add_frame,
-            text="♕ ID người chơi:",
+            text="♘ ID người chơi:",
             font=("Helvetica", 12, "bold"),
             bg="#fdf2f8",
             fg="#1f2937"
@@ -118,14 +120,14 @@ class FriendUI:
         self.search_entry = ttk.Entry(add_frame, width=14)
         self.search_entry.pack(side="left", padx=6)
 
-        ttk.Button(add_frame, text="➕ Kết bạn", command=self.send_friend_request).pack(side="left", padx=5)
+        ttk.Button(add_frame, text="+ Kết bạn", command=self.send_friend_request).pack(side="left", padx=5)
 
         # ================= BOTTOM =================
         bottom = tk.Frame(container, bg="#fdf2f8")
         bottom.pack(fill="x", pady=(10, 0))
 
-        ttk.Button(bottom, text="🔄 Làm mới", command=self.refresh).pack(side="left")
-        ttk.Button(bottom, text="⬅ Quay lại", command=self.back).pack(side="right")
+        ttk.Button(bottom, text="↻ Làm mới", command=self.refresh).pack(side="left")
+        ttk.Button(bottom, text="← Quay lại", command=self.back).pack(side="right")
 
         self.status_label = tk.Label(
             container,
@@ -155,25 +157,32 @@ class FriendUI:
             self.render_friend_requests(msg)
         elif msg.startswith("FRIEND_REQUESTED"):
             self.status_label.config(text="♟️ Đã gửi lời mời kết bạn!")
+            show_toast(self.master, "Gửi lời mời kết bạn thành công", kind="success")
             self.refresh()
         elif msg.startswith("FRIEND_ACCEPTED"):
             self.status_label.config(text="♞ Đã đồng ý kết bạn!")
+            show_toast(self.master, "Đã chấp nhận lời mời kết bạn", kind="success")
             self.refresh()
         elif msg.startswith("FRIEND_DECLINED"):
             self.status_label.config(text="♜ Đã từ chối lời mời!")
+            show_toast(self.master, "Đã từ chối lời mời kết bạn", kind="warning")
             self.refresh()
         elif msg.startswith("ERROR"):
             # Xử lý lỗi protocol trả về từ server
             msg_lower = msg.lower()
             if "friend request already exists" in msg_lower:
                 self.status_label.config(text="⚠️ Đã gửi lời mời kết bạn trước đó!")
+                show_toast(self.master, "Bạn đã gửi lời mời trước đó", kind="warning")
             elif "user not found" in msg_lower:
                 self.status_label.config(text="⚠️ Không tìm thấy người dùng này!")
+                show_toast(self.master, "ID không tồn tại", kind="error")
             elif "cannot add yourself" in msg_lower:
                 self.status_label.config(text="⚠️ Không thể kết bạn với chính mình!")
+                show_toast(self.master, "Không thể kết bạn với chính mình", kind="warning")
             else:
                 # Ẩn debug, chỉ hiện lỗi ngắn gọn
                 self.status_label.config(text="Lỗi: " + msg.split("|")[-1].split("[")[0])
+                show_toast(self.master, "Có lỗi xảy ra khi kết bạn", kind="error")
         elif msg.startswith("CHAT_FROM|"):
             parts = msg.strip().split("|", 2)
             print("[DEBUG] CHAT_FROM parts:", parts)  # Debug print for chat message parts
@@ -199,12 +208,12 @@ class FriendUI:
         payload = msg.split("|", 1)[1]
         # Server trả về: 'id:name:state,id:name:state,...'
         if not payload.strip():
-            self.friends_listbox.insert(tk.END, "♟️ Chưa có bạn bè")
+            self.friends_listbox.insert(tk.END, "• Chưa có bạn bè")
             return
         
         entries = [e.strip() for e in payload.split(",") if e.strip()]
         if not entries:
-            self.friends_listbox.insert(tk.END, "♟️ Chưa có bạn bè")
+            self.friends_listbox.insert(tk.END, "• Chưa có bạn bè")
             return
         
         for entry in entries:
@@ -214,25 +223,25 @@ class FriendUI:
                 self.id_to_name[fid] = fname
                 self.name_to_id[fname] = fid
                 
-                # Hiển thị state với màu
+                # Hiển thị state với icon
                 if fstate == "online":
-                    color_dot = "🟢"  # Xanh
+                    status_icon = "●"  # Filled circle - online
                 elif fstate == "ingame":
-                    color_dot = "🔴"  # Đỏ
+                    status_icon = "◆"  # Filled diamond - in game
                 else:  # offline
-                    color_dot = "⚫"  # Đen
+                    status_icon = "○"  # Empty circle - offline
                 
-                self.friends_listbox.insert(tk.END, f"{color_dot} {fname} (ID: {fid})")
+                self.friends_listbox.insert(tk.END, f"{status_icon} {fname} (ID: {fid})")
             elif len(parts) >= 2:
                 fid, fname = parts[0], parts[1]
                 self.id_to_name[fid] = fname
                 self.name_to_id[fname] = fid
-                self.friends_listbox.insert(tk.END, f"♞ {fname} (ID: {fid})")
+                self.friends_listbox.insert(tk.END, f"♙ {fname} (ID: {fid})")
             else:
                 fid = parts[0]
                 self.id_to_name[fid] = fid
                 self.name_to_id[fid] = fid
-                self.friends_listbox.insert(tk.END, f"♞ Player ID {fid}")
+                self.friends_listbox.insert(tk.END, f"♙ Player ID {fid}")
 
     def render_friend_requests(self, msg):
         for w in self.requests_container.winfo_children():
@@ -243,7 +252,7 @@ class FriendUI:
         if not payload.strip():
             tk.Label(
                 self.requests_container,
-                text="♔ Không có lời mời nào",
+                text="• Không có lời mời nào",
                 bg="#ffffff",
                 fg="#6b7280"
             ).pack(anchor="w", pady=6)

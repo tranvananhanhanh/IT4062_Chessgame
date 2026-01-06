@@ -12,6 +12,7 @@
 #include "elo_leaderboard.h"
 #include "elo_history.h"
 #include "chat.h"
+#include "game_chat.h"
 #include "email_helper.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,6 +21,56 @@
 
 // External global variable
 extern GameManager game_manager;
+
+// ==================== HELPER FUNCTION ====================
+
+// Parse command string: command|param1|param2|param3|rest_of_message
+// This function properly handles messages containing pipes
+// Returns: number of parameters found (at least 1 for command)
+static int parse_command(const char *buffer, 
+                        char *command, size_t cmd_size,
+                        char *param1, size_t p1_size,
+                        char *param2, size_t p2_size,
+                        char *param3, size_t p3_size,
+                        char *param4, size_t p4_size) {
+    if (!buffer || !command) return 0;
+    
+    memset(command, 0, cmd_size);
+    if (param1) memset(param1, 0, p1_size);
+    if (param2) memset(param2, 0, p2_size);
+    if (param3) memset(param3, 0, p3_size);
+    if (param4) memset(param4, 0, p4_size);
+    
+    const char *pos = buffer;
+    int param_count = 0;
+    char *targets[] = {command, param1, param2, param3, param4};
+    size_t sizes[] = {cmd_size, p1_size, p2_size, p3_size, p4_size};
+    
+    for (int i = 0; i < 5; i++) {
+        if (!targets[i]) continue;
+        
+        const char *pipe = strchr(pos, '|');
+        size_t len;
+        
+        if (pipe) {
+            len = (size_t)(pipe - pos);
+        } else {
+            len = strlen(pos);
+        }
+        
+        if (len >= sizes[i]) len = sizes[i] - 1;
+        
+        strncpy(targets[i], pos, len);
+        targets[i][len] = '\0';
+        param_count++;
+        
+        if (!pipe) break;  // No more pipes, we're done
+        
+        pos = pipe + 1;  // Move past the pipe
+    }
+    
+    return param_count;
+}
 
 // ==================== COMMAND HANDLERS ====================
 
@@ -41,15 +92,12 @@ void handle_get_stats(ClientSession *session, char *param1, PGconn *db) {
 
 void protocol_handle_command(ClientSession *session, const char *buffer, PGconn *db) {
     // Parse command
-    char command[32], param1[64], param2[64], param3[64], param4[64];
-    memset(command, 0, sizeof(command));
-    memset(param1, 0, sizeof(param1));
-    memset(param2, 0, sizeof(param2));
-    memset(param3, 0, sizeof(param3));
-    memset(param4, 0, sizeof(param4));
-    
-    int num_params = sscanf(buffer, "%[^|]|%[^|]|%[^|]|%[^|]|%s", 
-                            command, param1, param2, param3, param4);
+    char command[32], param1[256], param2[1024], param3[64], param4[64];
+    int num_params = parse_command(buffer, command, sizeof(command),
+                                   param1, sizeof(param1),
+                                   param2, sizeof(param2),
+                                   param3, sizeof(param3),
+                                   param4, sizeof(param4));
     
     printf("[Protocol] Command: '%s' | Params: %d\n", command, num_params);
     
@@ -99,36 +147,38 @@ void protocol_handle_command(ClientSession *session, const char *buffer, PGconn 
     } else if (strcmp(command, "CHAT") == 0) {
         // CHAT|to_user|message
         handle_chat(session, num_params, param1, param2);
+    } else if (strcmp(command, "GAME_CHAT") == 0) {
+        // GAME_CHAT|match_id|message
+        int match_id = atoi(param1);
+        handle_game_chat(session, match_id, param2, db);
     }
     // Match/game logic
-    else if (strcmp(command, "CREATE_MATCH") == 0) {
-        handle_create_match(session, param1, param2, db);
-    } else if (strcmp(command, "JOIN_MATCH") == 0) {
-        handle_join_match(session, param1, param2, param3, db);
-    } else if (strcmp(command, "START_MATCH") == 0) {
-        handle_start_match(session, param1, param2, param3, param4, db);
-    } else if (strcmp(command, "GET_MATCH_STATUS") == 0) {
-        handle_get_match_status(session, param1, db);
-    } else if (strcmp(command, "MOVE") == 0) {
-        handle_move(session, num_params, param1, param2, param3, param4, db);
-    } else if (strcmp(command, "SURRENDER") == 0) {
-        handle_surrender(session, num_params, param1, param2, db);
-    } else if (strcmp(command, "GET_GAME_STATE") == 0) {
-        handle_get_game_state(session, param1, db);
-    } else if (strcmp(command, "GET_HISTORY") == 0) {
-        handle_get_history(session, param1, db);
-    } else if (strcmp(command, "GET_REPLAY") == 0) {
-        handle_get_replay(session, param1, db);
-    } else if (strcmp(command, "GET_STATS") == 0) {
-        handle_get_stats(session, param1, db);
-    }
-    // Bot
     else if (strcmp(command, "MODE_BOT") == 0) {
-        // MODE_BOT|user_id|difficulty
         handle_mode_bot(session, param1, param2, db);
     } else if (strcmp(command, "BOT_MOVE") == 0) {
-        // BOT_MOVE|match_id|player_move|difficulty
-        handle_bot_move(session, num_params, param1, param2, param3, db);
+        int game_id = atoi(param1);
+        const char *player_move = param2;
+        const char *bot_difficulty = param3;
+
+        GameMatch *match = game_manager_find_match(&game_manager, game_id);
+        if (!match) {
+            send(session->socket_fd, "ERROR|Game not found\n", 21, 0);
+            return;
+        }
+
+        pthread_mutex_lock(&match->lock);
+        int success = apply_player_move_on_board(match, player_move, session->user_id, db);
+        if (!success) {
+            pthread_mutex_unlock(&match->lock);
+            send(session->socket_fd, "ERROR|Invalid move\n", 19, 0);
+            return;
+        }
+
+        char current_fen[FEN_MAX_LENGTH];
+        chess_board_to_fen(&match->board, current_fen);
+        pthread_mutex_unlock(&match->lock);
+
+        register_bot_request(game_id, current_fen, bot_difficulty);
     }
     // Friend
     else if (strcmp(command, "FRIEND_REQUEST") == 0) {
@@ -171,6 +221,8 @@ void protocol_handle_command(ClientSession *session, const char *buffer, PGconn 
         handle_rematch_accept(session, num_params, param1, param2, db);
     } else if (strcmp(command, "REMATCH_DECLINE") == 0) {
         handle_rematch_decline(session, num_params, param1, param2, db);
+    } else if (strcmp(command, "SURRENDER") == 0) {
+        handle_surrender(session, num_params, param1, param2, db);
     }
     // Matchmaking
     else if (strcmp(command, "JOIN_MATCHMAKING") == 0 && num_params >= 2) {
@@ -179,7 +231,7 @@ void protocol_handle_command(ClientSession *session, const char *buffer, PGconn 
         handle_leave_matchmaking(session, param1, db);
     } else if (strcmp(command, "MMJOIN") == 0 && num_params >= 4) {
         char payload[256];
-        snprintf(payload, sizeof(payload), "%s %s %s", param1, param2, param3);
+        snprintf(payload, sizeof(payload), "%.80s %.80s %.80s", param1, param2, param3);
         char resp[256];
         memset(resp, 0, sizeof(resp));
         handle_mmjoin(payload, resp, sizeof(resp));
@@ -209,6 +261,14 @@ void protocol_handle_command(ClientSession *session, const char *buffer, PGconn 
         int user_id = atoi(param1);
         elo_get_history(db, user_id, output, sizeof(output));
         send(session->socket_fd, output, strlen(output), 0);
+    }
+    // Game History
+    else if (strcmp(command, "GET_HISTORY") == 0) {
+        handle_get_history(session, param1, db);
+    } else if (strcmp(command, "GET_REPLAY") == 0) {
+        handle_get_replay(session, param1, db);
+    } else if (strcmp(command, "GET_STATS") == 0) {
+        handle_get_stats(session, param1, db);
     } else {
         char error[128];
         sprintf(error, "ERROR|Unknown command: %s\n", command);

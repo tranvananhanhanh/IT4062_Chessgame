@@ -23,8 +23,8 @@ GAME_SRCS = $(GAME_DIR)/chess_board.c \
             $(GAME_DIR)/move_validator.c \
             $(GAME_DIR)/move_executor.c \
             $(GAME_DIR)/game_state.c \
-            $(GAME_DIR)/game_manager.c
-
+            $(GAME_DIR)/game_manager.c \
+            $(GAME_DIR)/game_chat.c
 TIMER_SRCS = $(TIMER_DIR)/timer.c
 
 HISTORY_SRCS = $(HISTORY_DIR)/history.c \
@@ -52,7 +52,9 @@ DB_SRCS = $(DB_DIR)/db_connection.c \
           $(DB_DIR)/db_matches.c \
           $(DB_DIR)/db_moves.c \
           $(DB_DIR)/db_stats.c \
-          $(DB_DIR)/db_users.c
+		  $(DB_DIR)/db_users.c \
+		  $(DB_DIR)/db_password_reset.c \
+		  $(DB_DIR)/email_helper.c
 
 ELO_SRCS = $(SRC_DIR)/elo/elo_calc.c \
            $(SRC_DIR)/elo/elo_history.c \
@@ -60,8 +62,7 @@ ELO_SRCS = $(SRC_DIR)/elo/elo_calc.c \
            $(SRC_DIR)/elo/elo_leaderboard.c
 
 LOGIN_DIR = $(SRC_DIR)/login
-LOGIN_SRCS = $(LOGIN_DIR)/login.c $(LOGIN_DIR)/logout.c $(LOGIN_DIR)/resgister.c \
-			 $(LOGIN_DIR)/email_helper.c
+LOGIN_SRCS = $(LOGIN_DIR)/login.c $(LOGIN_DIR)/logout.c $(LOGIN_DIR)/resgister.c
 
 MATCHMAKING_DIR = $(SRC_DIR)/matchmaking
 MATCHMAKING_SRCS = $(MATCHMAKING_DIR)/matchmaking.c

@@ -10,7 +10,7 @@ PGconn* db_connect() {
         "port=5432 "
         "dbname=chess_db "
         "user=postgres "
-        "password=123456 "
+        "password=postgres "
         "connect_timeout=5";
 
     PGconn *conn = PQconnectdb(conninfo);

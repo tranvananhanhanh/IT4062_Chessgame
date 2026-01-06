@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import messagebox
 
 class GameControlUI(tk.Frame):
     # =========================
@@ -85,7 +86,7 @@ class GameControlUI(tk.Frame):
             bg="#f44336" , command=self.decline_rematch
         )
 
-        self.btn_back = tk.Button(self, text="Back to Menu", width=18, command=self.on_back)
+        self.btn_back = tk.Button(self, text="Back to Menu", width=18, command=self.back_to_menu_with_confirm)
         self.btn_back.pack(pady=(40, 0))
 
         self.update_ui_by_state()
@@ -149,6 +150,8 @@ class GameControlUI(tk.Frame):
         self.update_ui_by_state()
 
     def surrender(self):
+        if not messagebox.askyesno("Đầu hàng", "Bạn có chắc chắn muốn đầu hàng không?"):
+            return
         self.client.send(f"SURRENDER|{self.match_id}|{self.user_id}\n")
         self.game_state = self.STATE_GAME_OVER
         self.status_label.config(text="You surrendered", fg="red")
@@ -193,3 +196,10 @@ class GameControlUI(tk.Frame):
         self.game_state = self.STATE_GAME_OVER
         self.status_label.config(text="Rematch declined", fg="purple")
         self.update_ui_by_state()
+
+    def back_to_menu_with_confirm(self):
+        """Show confirmation dialog before going back to menu during active game"""
+        if self.game_state != self.STATE_GAME_OVER:
+            if not messagebox.askyesno("Thoát trận", "Bạn có chắc chắn muốn thoát? Bạn sẽ thua trận này."):
+                return
+        self.on_back()

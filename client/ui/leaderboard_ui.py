@@ -16,7 +16,7 @@ class LeaderboardUI:
         self.message_queue = queue.Queue()
 
         # Title
-        tk.Label(self.frame, text="🏆 Bảng Xếp Hạng (Top 10)", font=FONT_TITLE, fg="#d4af37").pack(pady=(0, 20))
+        tk.Label(self.frame, text="♔ Bảng Xếp Hạng (Top 10)", font=FONT_TITLE, fg="#d4af37").pack(pady=(0, 20))
 
         # Treeview for leaderboard
         self.tree_frame = tk.Frame(self.frame)

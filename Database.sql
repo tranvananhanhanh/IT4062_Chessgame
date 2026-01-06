@@ -32,7 +32,6 @@ CREATE TABLE password_reset (
         ON UPDATE CASCADE
         ON DELETE CASCADE
 );
-
 -- ===========================================
 -- TABLE: match_game
 -- ===========================================

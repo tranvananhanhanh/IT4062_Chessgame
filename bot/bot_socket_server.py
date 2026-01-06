@@ -123,6 +123,15 @@ def main():
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    
+    # For Linux/Unix: also set SO_REUSEPORT to allow port reuse after crash
+    try:
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+    except (AttributeError, OSError):
+        pass  # SO_REUSEPORT not available on Windows
+    
+    # Set socket timeout to allow graceful shutdown
+    server_socket.settimeout(1.0)
 
     try:
         server_socket.bind((HOST, PORT))
@@ -130,15 +139,26 @@ def main():
         print("✅ Bot server ready\n")
 
         while True:
-            client_socket, addr = server_socket.accept()
-            handle_client(client_socket, addr)
+            try:
+                client_socket, addr = server_socket.accept()
+                handle_client(client_socket, addr)
+            except socket.timeout:
+                continue  # Timeout is normal, just continue
+            except KeyboardInterrupt:
+                raise  # Re-raise to outer handler
+            except Exception as e:
+                print(f"[Bot] Accept error: {e}", file=sys.stderr)
+                continue
 
     except KeyboardInterrupt:
         print("\n[Bot] Shutting down...")
     except Exception as e:
         print(f"[Bot] Server error: {e}", file=sys.stderr)
     finally:
-        server_socket.close()
+        try:
+            server_socket.close()
+        except:
+            pass
         print("[Bot] Server stopped")
 
 

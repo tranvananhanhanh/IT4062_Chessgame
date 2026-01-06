@@ -150,20 +150,59 @@ class GameBotUI:
             self.send_move(move)
 
     def get_promotion_choice(self):
+        # Use a simple, reliable promotion dialog (text labels avoid missing fonts)
         promotion_window = tk.Toplevel(self.master)
         promotion_window.title("Phong cấp")
-        promotion_window.geometry("320x150")
+        promotion_window.configure(bg="#f9f9f9")
         promotion_window.resizable(False, False)
-        promotion_window.grab_set() 
-        x = self.master.winfo_x() + (self.master.winfo_width() // 2) - 160
-        y = self.master.winfo_y() + (self.master.winfo_height() // 2) - 75
-        promotion_window.geometry(f"+{x}+{y}")
+        promotion_window.transient(self.master)
+
+        # Ensure window is mapped before grab to avoid "window not viewable"
+        promotion_window.update_idletasks()
+        try:
+            promotion_window.wait_visibility()
+            promotion_window.grab_set()
+        except tk.TclError:
+            # Fallback: defer grab to the next idle cycle
+            promotion_window.after_idle(lambda: promotion_window.grab_set())
+
+        # Center on parent
+        self.master.update_idletasks()
+        x = self.master.winfo_x() + (self.master.winfo_width() // 2) - 180
+        y = self.master.winfo_y() + (self.master.winfo_height() // 2) - 90
+        # Tăng chiều cao để luôn thấy đủ 4 lựa chọn (có Mã/N)
+        promotion_window.geometry("360x230+%d+%d" % (x, y))
+
         choice = tk.StringVar(value="q")
-        tk.Label(promotion_window, text="Chọn quân phong cấp:", font=("Helvetica", 11, "bold")).pack(pady=10)
-        btn_frame = tk.Frame(promotion_window)
-        btn_frame.pack()
-        for char, display in [('q', 'Q'), ('r', 'R'), ('b', 'B'), ('n', 'N')]:
-            tk.Button(btn_frame, text=PIECE_UNICODE[display], font=("Helvetica", 20), width=2, command=lambda c=char: [choice.set(c), promotion_window.destroy()]).pack(side="left", padx=5)
+
+        tk.Label(
+            promotion_window,
+            text="Chọn quân phong cấp",
+            font=("Helvetica", 12, "bold"),
+            bg="#f9f9f9",
+            fg="#333"
+        ).pack(pady=(14, 10))
+
+        btn_frame = tk.Frame(promotion_window, bg="#f9f9f9")
+        btn_frame.pack(pady=6)
+
+        options = [
+            ("Hậu (Q)", "q"),
+            ("Xe (R)", "r"),
+            ("Tượng (B)", "b"),
+            ("Mã (N)", "n"),
+        ]
+
+        for label, char in options:
+            tk.Button(
+                btn_frame,
+                text=label,
+                font=("Helvetica", 11, "bold"),
+                width=14,
+                command=lambda c=char: (choice.set(c), promotion_window.destroy())
+            ).pack(fill="x", pady=4)
+
+        promotion_window.focus_force()
         self.master.wait_window(promotion_window)
         return choice.get()
 
