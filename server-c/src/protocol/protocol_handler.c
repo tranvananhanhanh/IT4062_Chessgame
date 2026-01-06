@@ -22,6 +22,58 @@
 // External global variable
 extern GameManager game_manager;
 
+// ==================== HELPER FUNCTION ====================
+
+// Parse command string: command|param1|param2|param3|rest_of_message
+// This function properly handles messages containing pipes
+// Returns: number of parameters found (at least 1 for command)
+static int parse_command(const char *buffer, 
+                        char *command, size_t cmd_size,
+                        char *param1, size_t p1_size,
+                        char *param2, size_t p2_size,
+                        char *param3, size_t p3_size,
+                        char *param4, size_t p4_size) {
+    if (!buffer || !command) return 0;
+    
+    memset(command, 0, cmd_size);
+    if (param1) memset(param1, 0, p1_size);
+    if (param2) memset(param2, 0, p2_size);
+    if (param3) memset(param3, 0, p3_size);
+    if (param4) memset(param4, 0, p4_size);
+    
+    const char *pos = buffer;
+    int param_count = 0;
+    char *targets[] = {command, param1, param2, param3, param4};
+    size_t sizes[] = {cmd_size, p1_size, p2_size, p3_size, p4_size};
+    
+    for (int i = 0; i < 5; i++) {
+        if (!targets[i]) continue;
+        
+        // Find next pipe or end of string
+        const char *pipe = strchr(pos, '|');
+        size_t len;
+        
+        if (pipe) {
+            len = pipe - pos;
+        } else {
+            // Last parameter - take everything to end
+            len = strlen(pos);
+        }
+        
+        if (len >= sizes[i]) len = sizes[i] - 1;
+        
+        strncpy(targets[i], pos, len);
+        targets[i][len] = '\0';
+        param_count++;
+        
+        if (!pipe) break;  // No more pipes, we're done
+        
+        pos = pipe + 1;  // Move past the pipe
+    }
+    
+    return param_count;
+}
+
 // ==================== COMMAND HANDLERS ====================
 
 // History handler wrappers
@@ -42,15 +94,13 @@ void handle_get_stats(ClientSession *session, char *param1, PGconn *db) {
 
 void protocol_handle_command(ClientSession *session, const char *buffer, PGconn *db) {
     // Parse command
-    char command[32], param1[64], param2[64], param3[64], param4[64];
-    memset(command, 0, sizeof(command));
-    memset(param1, 0, sizeof(param1));
-    memset(param2, 0, sizeof(param2));
-    memset(param3, 0, sizeof(param3));
-    memset(param4, 0, sizeof(param4));
+    char command[32], param1[256], param2[1024], param3[64], param4[64];
     
-    int num_params = sscanf(buffer, "%[^|]|%[^|]|%[^|]|%[^|]|%s", 
-                            command, param1, param2, param3, param4);
+    int num_params = parse_command(buffer, command, sizeof(command),
+                                   param1, sizeof(param1),
+                                   param2, sizeof(param2),
+                                   param3, sizeof(param3),
+                                   param4, sizeof(param4));
     
     printf("[Protocol] Command: '%s' | Params: %d\n", command, num_params);
     

@@ -6,7 +6,7 @@ class PollClient:
     def __init__(self, host=None, port=None):
         # Allow overriding host/port via args or env; strip any accidental scheme
         host = host or os.getenv("CHESS_SERVER_HOST", "0.tcp.ap.ngrok.io").replace("tcp://", "")
-        port = int(port or os.getenv("CHESS_SERVER_PORT", 11527))
+        port = int(port or os.getenv("CHESS_SERVER_PORT", 15149))
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect((host, port))
