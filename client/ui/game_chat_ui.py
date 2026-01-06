@@ -70,11 +70,6 @@ class GameChatUI(tk.Frame):
         """Add a message to chat display"""
         self.chat_display.config(state="normal")
         
-        timestamp = datetime.now().strftime("%H:%M")
-        
-        # Format: [HH:MM] Sender: message
-        self.chat_display.insert("end", f"[{timestamp}] ", "timestamp")
-        
         if is_self:
             self.chat_display.insert("end", f"You: ", "self")
         else:
@@ -89,9 +84,7 @@ class GameChatUI(tk.Frame):
     def add_system_message(self, message):
         """Add a system message (no sender)"""
         self.chat_display.config(state="normal")
-        timestamp = datetime.now().strftime("%H:%M")
         
-        self.chat_display.insert("end", f"[{timestamp}] ", "timestamp")
         self.chat_display.insert("end", f"{message}\n", "system")
         
         self.chat_display.see("end")
