@@ -130,11 +130,33 @@ void protocol_handle_command(ClientSession *session, const char *buffer, PGconn 
     // Bot
     else if (strcmp(command, "MODE_BOT") == 0) {
         // MODE_BOT|user_id|difficulty
-        handle_mode_bot(session, param1, param2, db);
-    } else if (strcmp(command, "BOT_MOVE") == 0) {
-        // BOT_MOVE|match_id|player_move|difficulty
-        handle_bot_move(session, num_params, param1, param2, param3, db);
+        handle_mode_bot(session, param1, param2, db);}
+    else if (strcmp(command, "BOT_MOVE") == 0) {
+    int game_id = atoi(param1);
+    const char *player_move = param2;
+    const char *bot_difficulty = param3;
+
+    GameMatch *match = game_manager_find_match(&game_manager, game_id);
+    if (!match) {
+        send(session->socket_fd, "ERROR|Game not found\n", 21, 0);
+        return;
     }
+
+    pthread_mutex_lock(&match->lock);
+    int success = apply_player_move_on_board(match, player_move, session->user_id, db);
+    if (! success) {
+        pthread_mutex_unlock(&match->lock);
+        send(session->socket_fd, "ERROR|Invalid move\n", 19, 0);
+        return;
+    }
+
+    char current_fen[FEN_MAX_LENGTH];
+    chess_board_to_fen(&match->board, current_fen);
+    pthread_mutex_unlock(&match->lock);
+
+    register_bot_request(game_id, current_fen, bot_difficulty);
+}
+    
     // Friend
     else if (strcmp(command, "FRIEND_REQUEST") == 0) {
         handle_friend_request(session, num_params, param1, param2, db);

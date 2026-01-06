@@ -6,6 +6,7 @@
 #define PORT 8888
 #define MAX_CLIENTS 100
 
+void register_bot_request(int game_id, const char *fen, const char *difficulty);
 // Server initialization and lifecycle
 int server_init(PGconn **db_conn);
 void server_start();

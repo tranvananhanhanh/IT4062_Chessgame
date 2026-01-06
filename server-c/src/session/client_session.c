@@ -2,6 +2,7 @@
 #include "online_users.h"
 #include "history.h"
 #include <stdlib.h>
+#include <sys/socket.h>
 #include <string.h>
 #include <pthread.h>
 #include <stdio.h>

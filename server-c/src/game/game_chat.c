@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <stdlib.h>
+
 
 // Extern bảng online_users từ server_core
 extern OnlineUsers online_users;

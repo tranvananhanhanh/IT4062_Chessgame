@@ -1,45 +1,23 @@
 #ifndef BOT_H
 #define BOT_H
 
-#include "client_session.h"
 #include <libpq-fe.h>
-#include <stddef.h>
+#include "client_session.h"
+#include "game.h"
 
-/**
- * Bot Module - Handles bot game initialization and moves
- */
+// Gửi request non-blocking tới bot server
+int send_request_to_bot_nonblocking(const char *fen, const char *difficulty);
 
-void handle_mode_bot(
-    ClientSession *session,
-    char *user_id,
-    char *difficulty,
-    PGconn *db
-);
+// Khởi tạo trận bot
+void handle_mode_bot(ClientSession *session, char *user_id, char *difficulty, PGconn *db);
 
-void handle_bot_move(
-    ClientSession *session,
-    int num_params,
-    char *match_id,
-    char *player_move,
-    char *difficulty,
-    PGconn *db
-);
+// Áp dụng nước đi người chơi lên board
+int apply_player_move_on_board(GameMatch *match, const char *player_move, int user_id, PGconn *db);
 
-/**
- * Call python chess bot.
- * - fen: current board position (SOURCE OF TRUTH)
- * - difficulty: bot difficulty
- * - bot_move_out: output UCI move (e2e4, g8f6, ...)
- *
- * Return:
- *   0 = OK
- *  -1 = error
- */
-int call_python_bot(
-    const char *fen,
-    const char *difficulty,
-    char *bot_move_out,
-    size_t bot_move_size
-);
+// Áp dụng nước đi bot lên board (gọi từ event-loop)
+void apply_bot_move_on_board(GameMatch *match, const char *bot_move, PGconn *db);
 
-#endif // BOT_H
+// Đăng ký bot request vào poll pool
+void register_bot_request(int game_id, const char *fen, const char *difficulty);
+
+#endif
