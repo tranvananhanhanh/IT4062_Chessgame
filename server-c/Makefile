@@ -104,6 +104,11 @@ directories:
 	@mkdir -p $(BUILD_DIR)/src/login
 	@mkdir -p $(BUILD_DIR)/src/matchmaking
 	@mkdir -p $(BUILD_DIR)/src/chat
+	@mkdir -p $(BUILD_DIR)/src/db
+	@mkdir -p $(BUILD_DIR)/src/elo
+	@mkdir -p $(BUILD_DIR)/src/login
+	@mkdir -p $(BUILD_DIR)/src/matchmaking
+	@mkdir -p $(BUILD_DIR)/src/chat
 
 	@mkdir -p $(BIN_DIR)
 

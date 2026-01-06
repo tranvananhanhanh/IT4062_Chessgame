@@ -98,7 +98,7 @@ class PvPUI:
         self.canvas = tk.Canvas(left_panel, width=600, height=600, bg="#ffffff")
         self.canvas.pack()
         self.canvas.bind("<Button-1>", self.on_click)
-       
+
         # Center panel - Chat
         self.game_chat = GameChatUI(
             container,
@@ -106,7 +106,7 @@ class PvPUI:
             self.client
         )
         self.game_chat.pack(side="left", fill="y", padx=10, pady=20)
-  
+
         # Right panel - Controls (tách ra GameControlUI)
         self.game_control = GameControlUI(
             container,
