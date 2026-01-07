@@ -5,7 +5,7 @@ from ui.gamecontrol_ui import GameControlUI
 from ui.game_chat_ui import GameChatUI
 
 class PvPUI:
-    def __init__(self, master, match_id, my_color, opponent_name, client, on_back, user_id):
+    def __init__(self, master, match_id, my_color, opponent_name, client, on_back, user_id, app):
         self.master = master
         self.match_id = match_id
         self.my_color = my_color
@@ -13,6 +13,7 @@ class PvPUI:
         self.client = client
         self.on_back = on_back
         self.user_id = user_id
+        self.app = app
         
         # Timer state
         self.white_time = 10 * 60  # 10 minutes
@@ -90,13 +91,17 @@ class PvPUI:
         # Main container
         container = tk.Frame(self.frame, bg="#f0f0f0")
         container.pack(fill="both", expand=True)
+        container.grid_rowconfigure(0, weight=1)
+        container.grid_columnconfigure(0, weight=1)  # board column
+        container.grid_columnconfigure(1, weight=0)  # chat
+        container.grid_columnconfigure(2, weight=0)  # controls
         
-        # Left panel - Board
-        left_panel = tk.Frame(container, bg="#f0f0f0")
-        left_panel.pack(side="left", fill="both", expand=True, padx=20, pady=20)
-        
-        self.canvas = tk.Canvas(left_panel, width=600, height=600, bg="#ffffff")
-        self.canvas.pack()
+        # Board
+        board_frame = tk.Frame(container, bg="#f0f0f0")
+        board_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+
+        self.canvas = tk.Canvas(board_frame, width=600, height=600, bg="#ffffff")
+        self.canvas.place(relx=0.5, rely=0.5, anchor="center")
         self.canvas.bind("<Button-1>", self.on_click)
        
         # Center panel - Chat
@@ -105,7 +110,7 @@ class PvPUI:
             self.match_id,
             self.client
         )
-        self.game_chat.pack(side="left", fill="y", padx=10, pady=20)
+        self.game_chat.grid(row=0, column=1, sticky="ns", padx=10, pady=20)
   
         # Right panel - Controls (tách ra GameControlUI)
         self.game_control = GameControlUI(
@@ -116,7 +121,7 @@ class PvPUI:
             self.client,
             self.back_to_menu
         )
-        self.game_control.pack(side="right", fill="y", padx=(0, 20), pady=20)
+        self.game_control.grid(row=0, column=2, sticky="ns", padx=(0, 20), pady=20)
         
         # Liên kết label để cập nhật trạng thái
         self.status_label = self.game_control.status_label
@@ -530,6 +535,8 @@ class PvPUI:
                 elo_change = int(parts[5])
                 result_text = getattr(self, "_pending_result_text", "Kết thúc trận")
                 show_result_overlay(self.master, result_text, new_elo, elo_change)
+                # Update app's ELO
+                self.app.update_elo(new_elo, elo_change)
                 # Clear pending
                 self._pending_result_text = None
             else:

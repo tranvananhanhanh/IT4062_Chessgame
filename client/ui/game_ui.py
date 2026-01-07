@@ -10,6 +10,7 @@ from ui.history_ui import HistoryUI
 from ui.leaderboard_ui import LeaderboardUI
 from ui.notifications import show_toast
 import sys
+import json
 import queue  # ← THÊM: Cho thread-safe message forwarding
 
 FONT_TITLE = ("Helvetica", 18, "bold")
@@ -42,6 +43,8 @@ class ChessApp:
         self.username = None
         self.user_id = None
         self.elo = 1200  # Default ELO
+        self.elo_delta = 0
+        self.elo_label = None
 
         self.current_frame = None
         self.login_ui = None
@@ -49,6 +52,7 @@ class ChessApp:
         self.pending_action = None
         self.pending_context = {}
         self.listeners = []
+        self.elo_refresh_timer = None
         self.poll_server()
         self.login_frame()
 
@@ -70,6 +74,9 @@ class ChessApp:
         if hasattr(self, 'status_label'):
             self.status_label.destroy()
             delattr(self, 'status_label')
+        self.elo_label = None
+            # Stop ELO refresh polling when leaving menu
+        self.stop_elo_refresh()
 
     def create_button(self, parent, text, command):
         return tk.Button(
@@ -100,9 +107,51 @@ class ChessApp:
         if listener not in self.listeners:
             self.listeners.append(listener)
 
+    def update_elo(self, new_elo, delta):
+        self.elo = int(new_elo)
+        self.elo_delta = int(delta)
+        self.refresh_elo_display()
+
+    def _format_elo_text(self):
+        # Show signed delta if it exists
+        if self.elo_delta > 0:
+            delta_text = f" + {self.elo_delta}"
+        elif self.elo_delta < 0:
+            delta_text = f" {self.elo_delta}"
+        else:
+            delta_text = ""
+        return f"♔ Điểm ELO: {self.elo}{delta_text}"
+
+    def refresh_elo_display(self):
+        if self.elo_label and self.elo_label.winfo_exists():
+            self.elo_label.config(text=self._format_elo_text())
+
     def remove_listener(self, listener):
         if listener in self.listeners:
             self.listeners.remove(listener)
+
+    def start_elo_refresh(self):
+        """Start periodic ELO refresh polling every 5 seconds at main menu."""
+        if self.elo_refresh_timer:
+            self.master.after_cancel(self.elo_refresh_timer)
+        
+        def poll_elo():
+            # Only request if still at main menu
+            if hasattr(self, 'main_menu_frame') and self.main_menu_frame.winfo_exists():
+                # STATS contains current_elo; cheaper than pulling full history
+                self.client.send(f"GET_STATS|{self.user_id}\n")
+                # Schedule next refresh
+                self.elo_refresh_timer = self.master.after(5000, poll_elo)
+            else:
+                self.elo_refresh_timer = None
+        
+        poll_elo()
+
+    def stop_elo_refresh(self):
+        """Stop the ELO refresh polling."""
+        if self.elo_refresh_timer:
+            self.master.after_cancel(self.elo_refresh_timer)
+            self.elo_refresh_timer = None
 
     # ===== Login / Register =====
     def login_frame(self):
@@ -173,8 +222,23 @@ class ChessApp:
                  bg="#ecf0f1", fg="#2c3e50").pack(anchor="w")
         tk.Label(info_box, text=f"Mã số: {self.user_id}", font=("Helvetica", 9), 
                  bg="#ecf0f1", fg="#7f8c8d").pack(anchor="w", pady=(1, 0))
-        tk.Label(info_box, text=f"♔ Điểm ELO: {self.elo}", font=("Helvetica", 10, "bold"), 
-                 bg="#ecf0f1", fg="#27ae60").pack(anchor="w", pady=(1, 0))
+        self.elo_label = tk.Label(
+            info_box,
+            text=self._format_elo_text(),
+            font=("Helvetica", 10, "bold"),
+            bg="#ecf0f1",
+            fg="#27ae60"
+        )
+        self.elo_label.pack(anchor="w", pady=(1, 0))
+        
+        # Request latest ELO from server to ensure it's up to date
+        self.client.send(f"GET_STATS|{self.user_id}\n")
+        # Store reference to main menu for listener handling
+        self.main_menu_frame = frame
+        # Add this app as listener to receive ELO updates
+        self.add_listener(self)
+        # Start periodic ELO refresh polling
+        self.start_elo_refresh()
 
         # Buttons container
         buttons_frame = tk.Frame(inner, bg="#ffffff")
@@ -212,6 +276,38 @@ class ChessApp:
         self.friend_ui = FriendUI(self.master, self.user_id, self.main_menu, self.client)
         self.add_listener(self.friend_ui)
 
+    # ===== Handle Messages (as a listener) =====
+    def handle_message(self, msg):
+        """Handle messages when app is at main menu."""
+        msg = msg.strip()
+        
+        # Only update ELO if at main menu
+        if not hasattr(self, 'main_menu_frame') or not self.main_menu_frame.winfo_exists():
+            return
+        
+        # Handle ELO_HISTORY updates to refresh display in real-time
+        if msg.startswith("ELO_HISTORY|"):
+            parts = msg.strip().split('|')
+            try:
+                count = int(parts[1]) if len(parts) > 1 else 0
+            except ValueError:
+                count = 0
+            # Update ELO from latest history entry
+            if count >= 1 and len(parts) >= 7:
+                new_elo = int(parts[4])
+                elo_change = int(parts[5])
+                self.update_elo(new_elo, elo_change)
+
+        # Handle STATS response (contains current_elo)
+        if msg.startswith("STATS|"):
+            try:
+                payload = msg.split('|', 1)[1]
+                data = json.loads(payload)
+                if 'current_elo' in data:
+                    self.update_elo(int(data['current_elo']), 0)
+            except Exception:
+                pass
+
     # ===== Network actions =====
     def send_friend_request(self):
         friend_id = self.friend_id_entry.get()
@@ -232,7 +328,14 @@ class ChessApp:
             responses = self.client.poll()
         except ConnectionError as e:
             print("[Client] Server disconnected:", e)
-            return  # ⛔ DỪNG POLLING NGAY
+            # Hiển thị dialog cảnh báo cho user
+            messagebox.showerror(
+                "Server Đóng",
+                "Server đã đóng đột ngột!\n\nVui lòng khởi động lại ứng dụng."
+            )
+            # Thoát ứng dụng một cách an toàn
+            self.master.quit()
+            return
 
         for resp in responses:
             self.handle_server_message(resp)
@@ -264,6 +367,7 @@ class ChessApp:
                         self.elo = int(parts[3])
                     except ValueError:
                         self.elo = 1200  # Default if parsing fails
+                self.elo_delta = 0
                 # Toast success
                 show_toast(self.master, "Đăng nhập thành công", kind="success")
                 self.main_menu()
@@ -346,6 +450,31 @@ class ChessApp:
             elif resp.startswith("ERROR"):
                 print("Lỗi matchmaking: " + resp)
                 self.pending_action = None
+
+        # ← THÊM: Xử lý ELO_HISTORY từ menu để cập nhật ELO mới nhất
+        elif resp.startswith("ELO_HISTORY|"):
+            parts = resp.strip().split('|')
+            try:
+                count = int(parts[1]) if len(parts) > 1 else 0
+            except ValueError:
+                count = 0
+            # Nếu đang ở menu (không có pending_action từ game), cập nhật ELO từ lịch sử
+            if count >= 1 and len(parts) >= 7 and not self.pending_action:
+                new_elo = int(parts[4])
+                elo_change = int(parts[5])
+                self.update_elo(new_elo, elo_change)  # Sẽ gọi refresh_elo_display()
+            return
+
+        # ← THÊM: Xử lý STATS để cập nhật ELO hiện tại (nhẹ hơn so với ELO_HISTORY)
+        elif resp.startswith("STATS|"):
+            try:
+                payload = resp.split('|', 1)[1]
+                data = json.loads(payload)
+                if 'current_elo' in data:
+                    self.update_elo(int(data['current_elo']), 0)
+            except Exception:
+                pass
+            return
 
         # ← THÊM: Xử lý BOT_MOVE_RESULT (nếu từ server, forward đến bot UI nếu đang chơi)
         elif resp.startswith("BOT_MOVE_RESULT|"):
@@ -509,8 +638,8 @@ class ChessApp:
         except:
             self.master.geometry("1200x800")
         
-        self.pvp_ui = PvPUI(self.master, match_id, my_color, opponent_name, 
-                           self.client, self.main_menu, self.user_id)
+        self.pvp_ui = PvPUI(self.master, match_id, my_color, opponent_name,
+                           self.client, self.main_menu, self.user_id, self)
         self.current_frame = self.pvp_ui.frame
         self.add_listener(self.pvp_ui)
         self.master.update_idletasks()
