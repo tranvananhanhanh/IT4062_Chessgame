@@ -475,6 +475,12 @@ class ChessApp:
             except Exception:
                 pass
             return
+        
+        # ← THÊM: Xử lý NOTIFICATION từ server (popup modal)
+        elif resp.startswith("NOTIFICATION|"):
+            msg = resp.split('|', 1)[1]
+            messagebox.showinfo("Thông báo từ hệ thống", msg)
+            return
 
         # ← THÊM: Xử lý BOT_MOVE_RESULT (nếu từ server, forward đến bot UI nếu đang chơi)
         elif resp.startswith("BOT_MOVE_RESULT|"):

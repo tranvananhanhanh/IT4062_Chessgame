@@ -46,7 +46,8 @@ CONTROL_SRCS = $(CONTROL_DIR)/control.c
 SESSION_SRCS = $(SESSION_DIR)/client_session.c
 
 SERVER_SRCS = $(SERVER_DIR)/server_core.c \
-              $(SERVER_DIR)/online_users.c
+              $(SERVER_DIR)/online_users.c \
+              $(SERVER_DIR)/recovery.c
 
 DB_SRCS = $(DB_DIR)/db_connection.c \
           $(DB_DIR)/db_matches.c \

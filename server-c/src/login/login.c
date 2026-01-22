@@ -65,6 +65,32 @@ void handle_login(ClientSession *session, char *param1, char *param2, PGconn *db
     char response[256];
     snprintf(response, sizeof(response), "LOGIN_SUCCESS|%d|%s|%s\n", user_id, name, elo);
     send(session->socket_fd, response, strlen(response), 0);
+
+    // Check for pending notifications (e.g. from server crash recovery)
+    char notify_query[256];
+    snprintf(notify_query, sizeof(notify_query), 
+        "SELECT id, message FROM pending_notifications WHERE user_id = %d", user_id);
+    PGresult *notify_res = PQexec(db, notify_query);
+    
+    if (PQresultStatus(notify_res) == PGRES_TUPLES_OK) {
+        int rows = PQntuples(notify_res);
+        for (int i = 0; i < rows; i++) {
+            char *msg = PQgetvalue(notify_res, i, 1);
+            char notify_pkt[512];
+            // Format: NOTIFICATION|message
+            snprintf(notify_pkt, sizeof(notify_pkt), "NOTIFICATION|%s\n", msg);
+            send(session->socket_fd, notify_pkt, strlen(notify_pkt), 0);
+            
+            // Delete notification after sending
+            int notify_id = atoi(PQgetvalue(notify_res, i, 0));
+            char del_query[128];
+            snprintf(del_query, sizeof(del_query), 
+                "DELETE FROM pending_notifications WHERE id = %d", notify_id);
+            PGresult *del_res = PQexec(db, del_query);
+            PQclear(del_res);
+        }
+    }
+    PQclear(notify_res);
 }
 
 void handle_register_validate(ClientSession *session, int num_params, char *param1, char *param2, char *param3, PGconn *db) {

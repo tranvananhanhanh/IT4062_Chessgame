@@ -5,6 +5,7 @@
 #include "history.h"
 #include "online_users.h"
 #include "bot.h"
+#include "recovery.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -99,6 +100,10 @@ int server_init(PGconn **db_connection) {
         fprintf(stderr, "[Error] Failed to connect to database\n");
         return -1;
     }
+    
+    // Initialize recovery system and check for interrupted matches
+    init_recovery_system(*db_connection);
+    recover_interrupted_matches(*db_connection);
     
     // Initialize game manager
     game_manager_init(&game_manager);
